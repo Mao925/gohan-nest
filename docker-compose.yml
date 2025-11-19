@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:15
+    container_name: gohan_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: gohan
+    ports:
+      - '5432:5432'
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  api:
+    build:
+      context: ./backend
+    container_name: gohan_api
+    restart: unless-stopped
+    depends_on:
+      - db
+    env_file:
+      - backend/.env
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@db:5432/gohan?schema=public
+      PORT: 3001
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./backend/prisma:/app/prisma
+
+volumes:
+  db-data:
