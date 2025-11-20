@@ -19,6 +19,9 @@ import { likesRouter } from './routes/likes.js';
 import { matchesRouter } from './routes/matches.js';
 import devRouter from './routes/dev.js';
 
+const NODE_ENV = process.env.NODE_ENV || 'development';
+console.log(`Starting API server in ${NODE_ENV} mode`);
+
 const app = express();
 app.use(
   cors({
