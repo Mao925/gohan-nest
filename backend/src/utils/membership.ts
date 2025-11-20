@@ -1,6 +1,5 @@
 import type { MembershipStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
-import { AUTO_APPROVE_MEMBERS, DEFAULT_COMMUNITY_CODE } from '../config.js';
 
 export type CommunityStatus = 'UNAPPLIED' | 'PENDING' | 'APPROVED';
 
@@ -14,41 +13,13 @@ export function mapCommunityStatus(status?: MembershipStatus | null): CommunityS
   return 'UNAPPLIED';
 }
 
-async function ensureAutoApprovedMembership(userId: string) {
-  if (!AUTO_APPROVE_MEMBERS) return null;
-  const community = await prisma.community.findUnique({ where: { inviteCode: DEFAULT_COMMUNITY_CODE } });
-  if (!community) return null;
-  return prisma.communityMembership.upsert({
-    where: { userId_communityId: { userId, communityId: community.id } },
-    update: { status: 'approved' },
-    create: { userId, communityId: community.id, status: 'approved' },
-    include: { community: true }
-  });
-}
-
-async function promoteIfNeeded(membershipId: string) {
-  if (!AUTO_APPROVE_MEMBERS) return null;
-  return prisma.communityMembership.update({
-    where: { id: membershipId },
-    data: { status: 'approved' },
-    include: { community: true }
-  });
-}
-
 export async function getLatestMembership(userId: string) {
   const membership = await prisma.communityMembership.findFirst({
     where: { userId },
     include: { community: true },
     orderBy: { createdAt: 'desc' }
   });
-  if (membership) {
-    if (membership.status !== 'approved') {
-      const promoted = await promoteIfNeeded(membership.id);
-      if (promoted) return promoted;
-    }
-    return membership;
-  }
-  return ensureAutoApprovedMembership(userId);
+  return membership;
 }
 
 export async function getApprovedMembership(userId: string) {
@@ -57,8 +28,7 @@ export async function getApprovedMembership(userId: string) {
     include: { community: true },
     orderBy: { createdAt: 'desc' }
   });
-  if (membership) return membership;
-  return ensureAutoApprovedMembership(userId);
+  return membership;
 }
 
 export async function getCommunityStatus(userId: string) {

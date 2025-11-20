@@ -7,7 +7,8 @@ import {
   DEFAULT_COMMUNITY_NAME,
   CLIENT_ORIGIN,
   SEED_ADMIN_EMAIL,
-  SEED_ADMIN_PASSWORD
+  SEED_ADMIN_PASSWORD,
+  ENABLE_SEED_ADMIN
 } from './config.js';
 import { prisma } from './lib/prisma.js';
 import { authRouter } from './routes/auth.js';
@@ -93,7 +94,9 @@ async function ensureDefaultAdmin() {
 
 async function bootstrap() {
   await ensureDefaultCommunity();
-  await ensureDefaultAdmin();
+  if (ENABLE_SEED_ADMIN) {
+    await ensureDefaultAdmin();
+  }
 
   app.listen(PORT, () => {
     console.log(`API server running on port ${PORT}`);

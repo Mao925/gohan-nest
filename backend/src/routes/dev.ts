@@ -17,21 +17,6 @@ const resetLikeStateSchema = z
   })
   .default({});
 
-devRouter.post('/approve-me', async (req, res) => {
-  const community = await getDefaultCommunity();
-  if (!community) {
-    return res.status(404).json({ message: 'Community not found' });
-  }
-
-  await prisma.communityMembership.upsert({
-    where: { userId_communityId: { userId: req.user!.userId, communityId: community.id } },
-    update: { status: 'approved' },
-    create: { userId: req.user!.userId, communityId: community.id, status: 'approved' }
-  });
-
-  res.json({ status: 'APPROVED' });
-});
-
 devRouter.post('/reset-status', async (req, res) => {
   const community = await getDefaultCommunity();
   if (!community) {
