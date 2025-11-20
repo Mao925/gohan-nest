@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
 import { prisma } from '../lib/prisma.js';
 import { DEFAULT_COMMUNITY_CODE } from '../config.js';
@@ -9,6 +10,12 @@ devRouter.use(authMiddleware);
 async function getDefaultCommunity() {
   return prisma.community.findUnique({ where: { inviteCode: DEFAULT_COMMUNITY_CODE } });
 }
+
+const resetLikeStateSchema = z
+  .object({
+    resetMembership: z.boolean().optional()
+  })
+  .default({});
 
 devRouter.post('/approve-me', async (req, res) => {
   const community = await getDefaultCommunity();
@@ -36,26 +43,41 @@ devRouter.post('/reset-status', async (req, res) => {
 });
 
 devRouter.post('/reset-like-state', async (req, res) => {
-  const community = await getDefaultCommunity();
-  if (!community) {
-    return res.status(404).json({ message: 'Community not found' });
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ message: 'Not Found' });
   }
 
-  await prisma.like.deleteMany({
-    where: {
-      communityId: community.id,
-      OR: [{ fromUserId: req.user!.userId }, { toUserId: req.user!.userId }]
-    }
-  });
+  const parseResult = resetLikeStateSchema.safeParse(req.body ?? {});
+  if (!parseResult.success) {
+    return res.status(400).json({ message: 'Invalid input', issues: parseResult.error.flatten() });
+  }
 
-  await prisma.match.deleteMany({
-    where: {
-      communityId: community.id,
-      OR: [{ user1Id: req.user!.userId }, { user2Id: req.user!.userId }]
-    }
-  });
+  const { resetMembership } = parseResult.data;
+  const targetUserId = req.user!.userId;
 
-  res.json({ message: 'Like state reset', status: 'CLEARED' });
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.like.deleteMany({
+        where: { fromUserId: targetUserId }
+      });
+
+      await tx.match.deleteMany({
+        where: {
+          OR: [{ user1Id: targetUserId }, { user2Id: targetUserId }]
+        }
+      });
+
+      if (resetMembership) {
+        await tx.communityMembership.deleteMany({
+          where: { userId: targetUserId }
+        });
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ message: (error as Error).message || 'Failed to reset like state.' });
+  }
+
+  return res.status(204).end();
 });
 
 export default devRouter;
