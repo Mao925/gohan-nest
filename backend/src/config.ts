@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-export const PORT = process.env.PORT ?? 3001;
+export const PORT = Number(process.env.PORT || 3001);
 export const JWT_SECRET = process.env.JWT_SECRET || "super-secret";
 export const DEFAULT_COMMUNITY_NAME =
   process.env.DEFAULT_COMMUNITY_NAME || "KING";
