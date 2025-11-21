@@ -27,8 +27,8 @@ const app = express();
 app.use(
   cors({
     origin: [
-      "https://gohan-expo-buel1vwmy-hashimao050925-1634s-projects.vercel.app",
-      "http://localhost:3000",
+      "https://gohan-expo.vercel.app", // ← 本番URL（これが必須）
+      "http://localhost:3000", // 開発用
     ],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -36,7 +36,7 @@ app.use(
   })
 );
 
-// OPTIONS を確実に処理する（超重要）
+// OPTIONS を確実に許可
 app.options("*", cors());
 
 app.use(express.json());
