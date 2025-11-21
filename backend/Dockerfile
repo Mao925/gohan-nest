@@ -31,3 +31,4 @@
   # IMPORTANT: DO NOT MIGRATE ON STARTUP
   CMD ["node", "dist/server.js"]
   
+  EXPOSE 3001
