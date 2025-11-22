@@ -67,52 +67,58 @@ authRouter.post('/register', async (req, res) => {
 });
 
 authRouter.post('/register-admin', async (req, res) => {
-  const parsed = adminRegisterSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid input', issues: parsed.error.flatten() });
-  }
+  try {
+    const parsed = adminRegisterSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid input', issues: parsed.error.flatten() });
+    }
 
-  if (!ADMIN_INVITE_CODE) {
-    return res.status(500).json({ message: 'Admin invite code is not configured' });
-  }
+    if (!ADMIN_INVITE_CODE) {
+      return res.status(500).json({ message: 'Admin invite code is not configured' });
+    }
 
-  if (parsed.data.adminInviteCode !== ADMIN_INVITE_CODE) {
-    return res.status(403).json({ message: 'Invalid admin invite code' });
-  }
+    if (parsed.data.adminInviteCode !== ADMIN_INVITE_CODE) {
+      return res.status(403).json({ message: 'Invalid admin invite code' });
+    }
 
-  const { email, password, name } = parsed.data;
+    const { email, password, name } = parsed.data;
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return res.status(409).json({ message: 'Email already registered' });
-  }
+    const existing = await prisma.user.findUnique({ where: { email } });
+    if (existing) {
+      return res.status(409).json({ message: 'Email already registered' });
+    }
 
-  const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, 10);
 
-  const user = await prisma.$transaction(async (tx) => {
-    const createdUser = await tx.user.create({
-      data: {
-        email,
-        passwordHash,
-        isAdmin: true
-      }
+    const user = await prisma.$transaction(async (tx) => {
+      const createdUser = await tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          isAdmin: true
+        }
+      });
+
+      await tx.profile.create({
+        data: {
+          userId: createdUser.id,
+          name,
+          bio: ''
+        }
+      });
+
+      return createdUser;
     });
 
-    await tx.profile.create({
-      data: {
-        userId: createdUser.id,
-        name,
-        bio: ''
-      }
-    });
-
-    return createdUser;
-  });
-
-  await getApprovedMembership(user.id);
-  const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
-  const payload = await buildUserPayload(user.id);
-  return res.status(201).json({ token, user: payload });
+    await getApprovedMembership(user.id);
+    const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+    const payload = await buildUserPayload(user.id);
+    return res.status(201).json({ token, user: payload });
+  } catch (error) {
+    console.error('REGISTER ADMIN ERROR:', error);
+    const message = error instanceof Error ? error.message : 'Unknown server error';
+    return res.status(500).json({ message });
+  }
 });
 
 authRouter.post('/login', async (req, res) => {
