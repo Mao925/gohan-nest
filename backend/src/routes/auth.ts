@@ -1,12 +1,79 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
+import crypto from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { signToken } from '../utils/jwt.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { buildUserPayload } from '../utils/user.js';
 import { getApprovedMembership } from '../utils/membership.js';
-import { ADMIN_INVITE_CODE } from '../config.js';
+import {
+  ADMIN_INVITE_CODE,
+  CLIENT_ORIGIN,
+  FRONTEND_URL,
+  LINE_CHANNEL_ID,
+  LINE_CHANNEL_SECRET,
+  LINE_REDIRECT_URI
+} from '../config.js';
+
+type LineTokenResponse = {
+  access_token: string;
+  expires_in: number;
+  id_token?: string;
+  refresh_token?: string;
+  scope?: string;
+  token_type: string;
+};
+
+type LineProfileResponse = {
+  userId: string;
+  displayName: string;
+  pictureUrl?: string;
+  statusMessage?: string;
+};
+
+type StateEntry = {
+  nonce: string;
+  createdAt: number;
+};
+
+const STATE_TTL_MS = 1000 * 60 * 10;
+const stateStore = new Map<string, StateEntry>();
+
+function generateRandomString(bytes = 16) {
+  return crypto.randomBytes(bytes).toString('hex');
+}
+
+function rememberState(state: string, nonce: string) {
+  stateStore.set(state, { nonce, createdAt: Date.now() });
+}
+
+function consumeState(state: string): StateEntry | null {
+  const entry = stateStore.get(state);
+  if (!entry) return null;
+  stateStore.delete(state);
+  const isExpired = Date.now() - entry.createdAt > STATE_TTL_MS;
+  return isExpired ? null : entry;
+}
+
+function ensureLineEnv() {
+  return Boolean(LINE_CHANNEL_ID && LINE_CHANNEL_SECRET && LINE_REDIRECT_URI);
+}
+
+function buildFrontendRedirect(token: string, isNewUser: boolean) {
+  const base =
+    FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
+  let url: URL;
+  try {
+    url = new URL(base);
+  } catch {
+    url = new URL(`https://${base}`);
+  }
+  url.pathname = '/auth/line/callback';
+  url.searchParams.set('token', token);
+  url.searchParams.set('newUser', String(isNewUser));
+  return url.toString();
+}
 
 const registerSchema = z.object({
   email: z.string().email(),
@@ -142,6 +209,138 @@ authRouter.post('/login', async (req, res) => {
   const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
   const payload = await buildUserPayload(user.id);
   return res.json({ token, user: payload });
+});
+
+authRouter.get('/line/login', (_req, res) => {
+  if (!ensureLineEnv()) {
+    return res.status(500).json({ message: 'LINE login is not configured' });
+  }
+
+  const state = generateRandomString(16);
+  const nonce = generateRandomString(16);
+  rememberState(state, nonce);
+
+  const searchParams = new URLSearchParams({
+    response_type: 'code',
+    client_id: LINE_CHANNEL_ID!,
+    redirect_uri: LINE_REDIRECT_URI!,
+    state,
+    scope: 'openid profile',
+    nonce
+  });
+
+  const authorizationUrl = `https://access.line.me/oauth2/v2.1/authorize?${searchParams.toString()}`;
+  return res.redirect(authorizationUrl);
+});
+
+authRouter.get('/line/callback', async (req, res) => {
+  if (!ensureLineEnv()) {
+    return res.status(500).json({ message: 'LINE login is not configured' });
+  }
+
+  const code = typeof req.query.code === 'string' ? req.query.code : null;
+  const state = typeof req.query.state === 'string' ? req.query.state : null;
+
+  if (!code || !state) {
+    return res.status(400).json({ message: 'Missing code or state' });
+  }
+
+  const stateEntry = consumeState(state);
+  if (!stateEntry) {
+    return res.status(400).json({ message: 'Invalid or expired state' });
+  }
+
+  try {
+    const tokenResponse = await fetch('https://api.line.me/oauth2/v2.1/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        redirect_uri: LINE_REDIRECT_URI!,
+        client_id: LINE_CHANNEL_ID!,
+        client_secret: LINE_CHANNEL_SECRET!,
+      })
+    });
+
+    if (!tokenResponse.ok) {
+      const errorText = await tokenResponse.text();
+      console.error('LINE token exchange failed:', tokenResponse.status, errorText);
+      return res.status(502).json({ message: 'Failed to exchange LINE authorization code' });
+    }
+
+    const tokenJson = await tokenResponse.json() as LineTokenResponse;
+
+    const profileResponse = await fetch('https://api.line.me/v2/profile', {
+      headers: {
+        Authorization: `Bearer ${tokenJson.access_token}`
+      }
+    });
+
+    if (!profileResponse.ok) {
+      const errorText = await profileResponse.text();
+      console.error('LINE profile fetch failed:', profileResponse.status, errorText);
+      return res.status(502).json({ message: 'Failed to fetch LINE profile' });
+    }
+
+    const profileJson = await profileResponse.json() as LineProfileResponse;
+    if (!profileJson.userId) {
+      return res.status(502).json({ message: 'LINE profile did not include userId' });
+    }
+
+    let user = await prisma.user.findUnique({
+      where: { lineUserId: profileJson.userId }
+    });
+
+    const placeholderEmail = `line_${profileJson.userId}@line.local`;
+    let isNewUser = false;
+
+    if (!user) {
+      const hashedPassword = await bcrypt.hash(generateRandomString(24), 10);
+      isNewUser = true;
+      user = await prisma.$transaction(async (tx) => {
+        const createdUser = await tx.user.create({
+          data: {
+            email: placeholderEmail,
+            passwordHash: hashedPassword,
+            isAdmin: false,
+            lineUserId: profileJson.userId,
+            lineDisplayName: profileJson.displayName,
+            linePictureUrl: profileJson.pictureUrl ?? null
+          }
+        });
+
+        await tx.profile.create({
+          data: {
+            userId: createdUser.id,
+            name: profileJson.displayName || 'LINE User',
+            bio: ''
+          }
+        });
+
+        return createdUser;
+      });
+    } else {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          lineDisplayName: profileJson.displayName,
+          linePictureUrl: profileJson.pictureUrl ?? null
+        }
+      });
+    }
+
+    await getApprovedMembership(user.id);
+    const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+
+    const redirectUrl = buildFrontendRedirect(token, isNewUser);
+    return res.redirect(redirectUrl);
+  } catch (error) {
+    console.error('LINE callback error:', error);
+    return res.status(500).json({ message: 'Failed to complete LINE login' });
+  }
 });
 
 authRouter.get('/me', authMiddleware, async (req, res) => {

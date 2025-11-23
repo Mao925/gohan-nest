@@ -33,6 +33,10 @@ export const DEFAULT_COMMUNITY_CODE =
   process.env.DEFAULT_COMMUNITY_CODE || "KINGCODE";
 export const DATABASE_URL = process.env.DATABASE_URL;
 export const CLIENT_ORIGIN = process.env.NEXT_PUBLIC_API_BASE_URL;
+export const FRONTEND_URL = process.env.FRONTEND_URL || CLIENT_ORIGIN;
+export const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID;
+export const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
+export const LINE_REDIRECT_URI = process.env.LINE_REDIRECT_URI;
 export const AUTO_APPROVE_MEMBERS = process.env.AUTO_APPROVE_MEMBERS === "true";
 export const SEED_ADMIN_EMAIL =
   process.env.SEED_ADMIN_EMAIL || "admin@example.com";
@@ -50,4 +54,8 @@ export const DEV_RESET_LIKE_ENDPOINT =
 
 if (!DATABASE_URL) {
   console.warn("DATABASE_URL is not set. Prisma will fail to connect.");
+}
+
+if (!LINE_CHANNEL_ID || !LINE_CHANNEL_SECRET || !LINE_REDIRECT_URI) {
+  console.warn("LINE OAuth environment variables are not fully configured.");
 }
