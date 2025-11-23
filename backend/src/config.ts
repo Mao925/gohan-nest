@@ -42,6 +42,11 @@ export const ENABLE_SEED_ADMIN = process.env.ENABLE_SEED_ADMIN === "true";
 const useSeedEnv = process.env.USE_SEED_MEMBERS ?? process.env.USE_SEED;
 export const INCLUDE_SEED_USERS = (useSeedEnv ?? "true") !== "false";
 export const ADMIN_INVITE_CODE = process.env.ADMIN_INVITE_CODE;
+export const ENABLE_RESET_LIKE_ENDPOINT =
+  process.env.ENABLE_RESET_LIKE_ENDPOINT === "true";
+export const DEV_RESET_LIKE_ENDPOINT =
+  process.env.DEV_RESET_LIKE_ENDPOINT ||
+  process.env.NEXT_PUBLIC_DEV_RESET_LIKE_ENDPOINT;
 
 if (!DATABASE_URL) {
   console.warn("DATABASE_URL is not set. Prisma will fail to connect.");
