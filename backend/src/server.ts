@@ -82,7 +82,8 @@ app.use(
     cookie: {
       httpOnly: true,
       secure: NODE_ENV === "production",
-      sameSite: "lax",
+      // 本番はクロスサイトの LINE ログイン開始に備えて SameSite=None、ローカルは http でも動くように Lax。
+      sameSite: NODE_ENV === "production" ? "none" : "lax",
     },
   })
 );
