@@ -1,7 +1,8 @@
 import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
-import { PORT, DEFAULT_COMMUNITY_CODE, DEFAULT_COMMUNITY_NAME, SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, ENABLE_SEED_ADMIN, } from "./config.js";
+import session from "express-session";
+import { PORT, DEFAULT_COMMUNITY_CODE, DEFAULT_COMMUNITY_NAME, CLIENT_ORIGIN, SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, ENABLE_SEED_ADMIN, DEV_RESET_LIKE_ENDPOINT, SESSION_SECRET, } from "./config.js";
 import { prisma } from "./lib/prisma.js";
 import { authRouter } from "./routes/auth.js";
 import { communityRouter } from "./routes/community.js";
@@ -11,14 +12,32 @@ import { membersRouter } from "./routes/members.js";
 import { likesRouter } from "./routes/likes.js";
 import { matchesRouter } from "./routes/matches.js";
 import devRouter from "./routes/dev.js";
+import { availabilityRouter } from "./routes/availability.js";
 const NODE_ENV = process.env.NODE_ENV || "development";
 console.log(`Starting API server in ${NODE_ENV} mode`);
 const app = express();
+app.set("trust proxy", 1);
+function uniqueOrigins(origins) {
+    return Array.from(new Set(origins.filter((origin) => Boolean(origin))));
+}
+function getOriginFromUrl(url) {
+    if (!url)
+        return undefined;
+    try {
+        return new URL(url).origin;
+    }
+    catch {
+        return undefined;
+    }
+}
+const allowedOrigins = uniqueOrigins([
+    "https://gohan-expo.vercel.app", // production client
+    "http://localhost:3000", // local dev client
+    CLIENT_ORIGIN,
+    getOriginFromUrl(DEV_RESET_LIKE_ENDPOINT),
+]);
 app.use(cors({
-    origin: [
-        "https://gohan-expo.vercel.app", // ← 本番URL（これが必須）
-        "http://localhost:3000", // 開発用
-    ],
+    origin: allowedOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -26,6 +45,16 @@ app.use(cors({
 // OPTIONS を確実に許可
 app.options("*", cors());
 app.use(express.json());
+app.use(session({
+    secret: SESSION_SECRET || "dev-session-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+        httpOnly: true,
+        secure: NODE_ENV === "production",
+        sameSite: "lax",
+    },
+}));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/community", communityRouter);
@@ -34,9 +63,8 @@ app.use("/api/profile", profileRouter);
 app.use("/api/members", membersRouter);
 app.use("/api/like", likesRouter);
 app.use("/api/matches", matchesRouter);
-if (process.env.NODE_ENV !== "production") {
-    app.use("/api/dev", devRouter);
-}
+app.use("/api/availability", availabilityRouter);
+app.use("/api/dev", devRouter);
 async function ensureDefaultCommunity() {
     await prisma.community.upsert({
         where: { inviteCode: DEFAULT_COMMUNITY_CODE },

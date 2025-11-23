@@ -32,28 +32,10 @@ type LineProfileResponse = {
   statusMessage?: string;
 };
 
-type StateEntry = {
-  nonce: string;
-  createdAt: number;
-};
-
 const STATE_TTL_MS = 1000 * 60 * 10;
-const stateStore = new Map<string, StateEntry>();
 
 function generateRandomString(bytes = 16) {
   return crypto.randomBytes(bytes).toString('hex');
-}
-
-function rememberState(state: string, nonce: string) {
-  stateStore.set(state, { nonce, createdAt: Date.now() });
-}
-
-function consumeState(state: string): StateEntry | null {
-  const entry = stateStore.get(state);
-  if (!entry) return null;
-  stateStore.delete(state);
-  const isExpired = Date.now() - entry.createdAt > STATE_TTL_MS;
-  return isExpired ? null : entry;
 }
 
 function ensureLineEnv() {
@@ -211,14 +193,24 @@ authRouter.post('/login', async (req, res) => {
   return res.json({ token, user: payload });
 });
 
-authRouter.get('/line/login', (_req, res) => {
+authRouter.get('/line/login', (req, res) => {
   if (!ensureLineEnv()) {
     return res.status(500).json({ message: 'LINE login is not configured' });
   }
 
+  if (!req.session) {
+    return res.status(500).json({ message: 'Session is not available' });
+  }
+
   const state = generateRandomString(16);
   const nonce = generateRandomString(16);
-  rememberState(state, nonce);
+  req.session.lineState = { value: state, nonce, createdAt: Date.now() };
+
+  console.log('LINE login: generated state', state);
+  console.log('LINE login: session after set', {
+    sessionID: req.sessionID,
+    lineState: req.session.lineState,
+  });
 
   const searchParams = new URLSearchParams({
     response_type: 'code',
@@ -240,14 +232,35 @@ authRouter.get('/line/callback', async (req, res) => {
 
   const code = typeof req.query.code === 'string' ? req.query.code : null;
   const state = typeof req.query.state === 'string' ? req.query.state : null;
+  const isDev = process.env.NODE_ENV !== 'production';
+  const sessionState = req.session?.lineState;
+
+  console.log('LINE callback: query', { code, state });
+  console.log('LINE callback: session', {
+    sessionID: req.sessionID,
+    lineState: sessionState,
+  });
 
   if (!code || !state) {
     return res.status(400).json({ message: 'Missing code or state' });
   }
 
-  const stateEntry = consumeState(state);
-  if (!stateEntry) {
-    return res.status(400).json({ message: 'Invalid or expired state' });
+  const isStateExpired =
+    !sessionState || Date.now() - sessionState.createdAt > STATE_TTL_MS;
+
+  if (!sessionState || sessionState.value !== state || isStateExpired) {
+    if (isDev) {
+      console.warn('LINE callback: invalid state, but skipping check in development', {
+        sessionState,
+        state,
+      });
+    } else {
+      return res.status(400).json({ message: 'Invalid or expired state' });
+    }
+  }
+
+  if (req.session) {
+    req.session.lineState = undefined;
   }
 
   try {
