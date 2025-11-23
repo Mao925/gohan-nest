@@ -9,6 +9,8 @@ import {
   SEED_ADMIN_EMAIL,
   SEED_ADMIN_PASSWORD,
   ENABLE_SEED_ADMIN,
+  ENABLE_RESET_LIKE_ENDPOINT,
+  DEV_RESET_LIKE_ENDPOINT,
 } from "./config.js";
 import { prisma } from "./lib/prisma.js";
 import { authRouter } from "./routes/auth.js";
@@ -24,12 +26,34 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 console.log(`Starting API server in ${NODE_ENV} mode`);
 
 const app = express();
+
+function uniqueOrigins(origins: Array<string | undefined>) {
+  return Array.from(
+    new Set(
+      origins.filter((origin): origin is string => Boolean(origin))
+    )
+  );
+}
+
+function getOriginFromUrl(url?: string) {
+  if (!url) return undefined;
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
+const allowedOrigins = uniqueOrigins([
+  "https://gohan-expo.vercel.app", // production client
+  "http://localhost:3000", // local dev client
+  CLIENT_ORIGIN,
+  getOriginFromUrl(DEV_RESET_LIKE_ENDPOINT),
+]);
+
 app.use(
   cors({
-    origin: [
-      "https://gohan-expo.vercel.app", // ← 本番URL（これが必須）
-      "http://localhost:3000", // 開発用
-    ],
+    origin: allowedOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -49,7 +73,7 @@ app.use("/api/profile", profileRouter);
 app.use("/api/members", membersRouter);
 app.use("/api/like", likesRouter);
 app.use("/api/matches", matchesRouter);
-if (process.env.NODE_ENV !== "production") {
+if (process.env.NODE_ENV !== "production" || ENABLE_RESET_LIKE_ENDPOINT) {
   app.use("/api/dev", devRouter);
 }
 
