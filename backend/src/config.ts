@@ -1,6 +1,29 @@
 import dotenv from "dotenv";
+import path from "node:path";
 
-dotenv.config();
+const isRailway =
+  Boolean(process.env.RAILWAY_ENVIRONMENT) ||
+  Boolean(process.env.RAILWAY_ENVIRONMENT_NAME) ||
+  Boolean(process.env.RAILWAY_PROJECT_ID) ||
+  Boolean(process.env.RAILWAY_PUBLIC_DOMAIN);
+
+const runtimeEnv =
+  process.env.NODE_ENV || (isRailway ? "production" : "development");
+
+const envFileName =
+  runtimeEnv === "production"
+    ? ".env.production"
+    : runtimeEnv === "test"
+    ? ".env.test"
+    : ".env";
+
+const configResult = dotenv.config({
+  path: path.resolve(process.cwd(), envFileName),
+});
+
+if (configResult.error && envFileName !== ".env") {
+  dotenv.config();
+}
 
 export const PORT = Number(process.env.PORT || 3001);
 export const JWT_SECRET = process.env.JWT_SECRET || "super-secret";
