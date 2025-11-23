@@ -31,6 +31,12 @@ console.log(`Starting API server in ${NODE_ENV} mode`);
 const app = express();
 app.set("trust proxy", 1);
 
+if (NODE_ENV === "production" && !SESSION_SECRET) {
+  throw new Error(
+    "SESSION_SECRET must be set in production to issue secure session cookies."
+  );
+}
+
 function uniqueOrigins(origins: Array<string | undefined>) {
   return Array.from(
     new Set(
@@ -76,7 +82,8 @@ app.use(
     cookie: {
       httpOnly: true,
       secure: NODE_ENV === "production",
-      sameSite: "lax",
+      // 本番はクロスサイトの LINE ログイン開始に備えて SameSite=None、ローカルは http でも動くように Lax。
+      sameSite: NODE_ENV === "production" ? "none" : "lax",
     },
   })
 );
