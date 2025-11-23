@@ -28,6 +28,12 @@ docker-compose.yml  # api + db をまとめて起動
 
 `backend/.env.example` をコピーして `.env` を作成してください。
 
+### 環境ごとの .env 読み込み
+
+- ローカル開発では `backend/.env` を利用します。Docker Compose もこのファイルを参照し、`DATABASE_URL` を `postgresql://postgres:postgres@db:5432/gohan?schema=public` に上書きします。
+- Railway やその他の本番デプロイでは `NODE_ENV=production`（または `RAILWAY_*` 環境変数が存在する）状態で `backend/.env.production` が自動的に読み込まれます。ここに本番 DB（例: Supabase や Railway Postgres）の `DATABASE_URL` / `DIRECT_URL` を記述してください。
+- どちらのファイルにも書かれていない値は、デプロイ先の環境変数に直接設定すれば上書きできます。
+
 | 変数 | 説明 |
 | ---- | ---- |
 | `DATABASE_URL` | PostgreSQL への接続文字列。docker-compose を使う場合は `postgresql://postgres:postgres@db:5432/gohan?schema=public` |
