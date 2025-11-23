@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AvailabilityStatus, TimeSlot, Weekday } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { getApprovedMembership } from '../utils/membership.js';
 
 const availabilitySchema = z.array(
   z.object({
@@ -11,6 +12,12 @@ const availabilitySchema = z.array(
     status: z.nativeEnum(AvailabilityStatus)
   })
 );
+
+const overlapParamsSchema = z.object({
+  partnerUserId: z.string().uuid()
+});
+
+type OverlapSlotDto = { weekday: Weekday; timeSlot: TimeSlot };
 
 export const availabilityRouter = Router();
 
@@ -78,5 +85,62 @@ availabilityRouter.put('/', async (req, res) => {
   } catch (error) {
     console.error('UPSERT AVAILABILITY ERROR:', error);
     return res.status(500).json({ message: 'Failed to update availability' });
+  }
+});
+
+// 指定ユーザーと自分の AVAILABLE スロットの交差を返す
+availabilityRouter.get('/overlap/:partnerUserId', async (req, res) => {
+  const parsedParams = overlapParamsSchema.safeParse(req.params);
+  if (!parsedParams.success) {
+    return res.status(400).json({ message: 'Invalid partnerUserId', issues: parsedParams.error.flatten() });
+  }
+
+  const currentUserId = req.user!.userId;
+  const partnerUserId = parsedParams.data.partnerUserId;
+
+  try {
+    const membership = await getApprovedMembership(currentUserId);
+    if (!membership) {
+      return res.status(403).json({ message: 'マッチしていないユーザーの日程は参照できません' });
+    }
+
+    // マッチ済みかをコミュニティ込みで確認
+    const match = await prisma.match.findFirst({
+      where: {
+        communityId: membership.communityId,
+        OR: [
+          { user1Id: currentUserId, user2Id: partnerUserId },
+          { user1Id: partnerUserId, user2Id: currentUserId }
+        ]
+      }
+    });
+
+    if (!match) {
+      return res.status(403).json({ message: 'マッチしていないユーザーの日程は参照できません' });
+    }
+
+    const [mySlots, partnerSlots] = await Promise.all([
+      prisma.availabilitySlot.findMany({
+        where: { userId: currentUserId, status: AvailabilityStatus.AVAILABLE },
+        select: { weekday: true, timeSlot: true },
+        orderBy: [{ weekday: 'asc' }, { timeSlot: 'asc' }]
+      }),
+      prisma.availabilitySlot.findMany({
+        where: { userId: partnerUserId, status: AvailabilityStatus.AVAILABLE },
+        select: { weekday: true, timeSlot: true },
+        orderBy: [{ weekday: 'asc' }, { timeSlot: 'asc' }]
+      })
+    ]);
+
+    // 共通スロットを計算
+    const partnerSet = new Set(partnerSlots.map((slot) => `${slot.weekday}-${slot.timeSlot}`));
+    const overlap: OverlapSlotDto[] = mySlots.filter((slot) =>
+      partnerSet.has(`${slot.weekday}-${slot.timeSlot}`)
+    );
+
+    return res.json(overlap);
+  } catch (error) {
+    console.error('FETCH OVERLAP AVAILABILITY ERROR:', error);
+    return res.status(500).json({ message: 'Failed to fetch overlap availability' });
   }
 });
