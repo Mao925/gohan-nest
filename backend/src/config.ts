@@ -53,12 +53,22 @@ export const DEV_RESET_LIKE_ENDPOINT =
   process.env.NEXT_PUBLIC_DEV_RESET_LIKE_ENDPOINT;
 export const SESSION_SECRET = process.env.SESSION_SECRET;
 
+const missingLineEnv = [
+  { key: "LINE_CHANNEL_ID", value: LINE_CHANNEL_ID },
+  { key: "LINE_CHANNEL_SECRET", value: LINE_CHANNEL_SECRET },
+  { key: "LINE_REDIRECT_URI", value: LINE_REDIRECT_URI },
+]
+  .filter((item) => !item.value)
+  .map((item) => item.key);
+
 if (!DATABASE_URL) {
   console.warn("DATABASE_URL is not set. Prisma will fail to connect.");
 }
 
-if (!LINE_CHANNEL_ID || !LINE_CHANNEL_SECRET || !LINE_REDIRECT_URI) {
-  console.warn("LINE OAuth environment variables are not fully configured.");
+if (missingLineEnv.length > 0) {
+  console.error(
+    `LINE OAuth environment variables are missing: ${missingLineEnv.join(", ")}`
+  );
 }
 
 if (!SESSION_SECRET) {
