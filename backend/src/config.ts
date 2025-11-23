@@ -51,6 +51,7 @@ export const ENABLE_RESET_LIKE_ENDPOINT =
 export const DEV_RESET_LIKE_ENDPOINT =
   process.env.DEV_RESET_LIKE_ENDPOINT ||
   process.env.NEXT_PUBLIC_DEV_RESET_LIKE_ENDPOINT;
+export const SESSION_SECRET = process.env.SESSION_SECRET;
 
 if (!DATABASE_URL) {
   console.warn("DATABASE_URL is not set. Prisma will fail to connect.");
@@ -58,4 +59,10 @@ if (!DATABASE_URL) {
 
 if (!LINE_CHANNEL_ID || !LINE_CHANNEL_SECRET || !LINE_REDIRECT_URI) {
   console.warn("LINE OAuth environment variables are not fully configured.");
+}
+
+if (!SESSION_SECRET) {
+  console.warn(
+    "SESSION_SECRET is not set. Session cookies will be insecure or fail to validate in production."
+  );
 }

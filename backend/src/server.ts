@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
+import session from "express-session";
 import {
   PORT,
   DEFAULT_COMMUNITY_CODE,
@@ -11,6 +12,7 @@ import {
   ENABLE_SEED_ADMIN,
   ENABLE_RESET_LIKE_ENDPOINT,
   DEV_RESET_LIKE_ENDPOINT,
+  SESSION_SECRET,
 } from "./config.js";
 import { prisma } from "./lib/prisma.js";
 import { authRouter } from "./routes/auth.js";
@@ -27,6 +29,7 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 console.log(`Starting API server in ${NODE_ENV} mode`);
 
 const app = express();
+app.set("trust proxy", 1);
 
 function uniqueOrigins(origins: Array<string | undefined>) {
   return Array.from(
@@ -65,6 +68,18 @@ app.use(
 app.options("*", cors());
 
 app.use(express.json());
+app.use(
+  session({
+    secret: SESSION_SECRET || "dev-session-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: NODE_ENV === "production",
+      sameSite: "lax",
+    },
+  })
+);
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);

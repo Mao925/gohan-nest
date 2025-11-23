@@ -13,6 +13,18 @@ const resetLikeStateSchema = z
     resetMembership: z.boolean().optional()
 })
     .default({});
+devRouter.post('/approve-me', async (req, res) => {
+    const community = await getDefaultCommunity();
+    if (!community) {
+        return res.status(404).json({ message: 'Community not found' });
+    }
+    const membership = await prisma.communityMembership.upsert({
+        where: { userId_communityId: { userId: req.user.userId, communityId: community.id } },
+        update: { status: 'approved' },
+        create: { userId: req.user.userId, communityId: community.id, status: 'approved' }
+    });
+    res.json({ status: membership.status.toUpperCase() });
+});
 devRouter.post('/reset-status', async (req, res) => {
     const community = await getDefaultCommunity();
     if (!community) {
@@ -22,9 +34,6 @@ devRouter.post('/reset-status', async (req, res) => {
     res.json({ status: 'UNAPPLIED' });
 });
 devRouter.post('/reset-like-state', async (req, res) => {
-    if (process.env.NODE_ENV === 'production') {
-        return res.status(404).json({ message: 'Not Found' });
-    }
     const parseResult = resetLikeStateSchema.safeParse(req.body ?? {});
     if (!parseResult.success) {
         return res.status(400).json({ message: 'Invalid input', issues: parseResult.error.flatten() });
