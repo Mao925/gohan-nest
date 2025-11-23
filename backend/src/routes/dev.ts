@@ -2,7 +2,11 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.js';
 import { prisma } from '../lib/prisma.js';
-import { DEFAULT_COMMUNITY_CODE, ENABLE_RESET_LIKE_ENDPOINT } from '../config.js';
+import {
+  DEFAULT_COMMUNITY_CODE,
+  ENABLE_RESET_LIKE_ENDPOINT,
+  DEV_RESET_LIKE_ENDPOINT
+} from '../config.js';
 
 const devRouter = Router();
 devRouter.use(authMiddleware);
@@ -12,6 +16,7 @@ async function getDefaultCommunity() {
 }
 
 const isProduction = process.env.NODE_ENV === 'production';
+const allowResetInProd = ENABLE_RESET_LIKE_ENDPOINT || Boolean(DEV_RESET_LIKE_ENDPOINT);
 
 const resetLikeStateSchema = z
   .object({
@@ -19,8 +24,27 @@ const resetLikeStateSchema = z
   })
   .default({});
 
+devRouter.post('/approve-me', async (req, res) => {
+  if (isProduction && !allowResetInProd) {
+    return res.status(404).json({ message: 'Not Found' });
+  }
+
+  const community = await getDefaultCommunity();
+  if (!community) {
+    return res.status(404).json({ message: 'Community not found' });
+  }
+
+  const membership = await prisma.communityMembership.upsert({
+    where: { userId_communityId: { userId: req.user!.userId, communityId: community.id } },
+    update: { status: 'approved' },
+    create: { userId: req.user!.userId, communityId: community.id, status: 'approved' }
+  });
+
+  res.json({ status: membership.status.toUpperCase() });
+});
+
 devRouter.post('/reset-status', async (req, res) => {
-  if (isProduction) {
+  if (isProduction && !allowResetInProd) {
     return res.status(404).json({ message: 'Not Found' });
   }
 
@@ -34,7 +58,7 @@ devRouter.post('/reset-status', async (req, res) => {
 });
 
 devRouter.post('/reset-like-state', async (req, res) => {
-  if (isProduction && !ENABLE_RESET_LIKE_ENDPOINT) {
+  if (isProduction && !allowResetInProd) {
     return res.status(404).json({ message: 'Not Found' });
   }
 

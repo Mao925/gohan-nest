@@ -51,6 +51,11 @@ const allowedOrigins = uniqueOrigins([
   getOriginFromUrl(DEV_RESET_LIKE_ENDPOINT),
 ]);
 
+const enableResetRoutes =
+  NODE_ENV !== "production" ||
+  ENABLE_RESET_LIKE_ENDPOINT ||
+  Boolean(DEV_RESET_LIKE_ENDPOINT);
+
 app.use(
   cors({
     origin: allowedOrigins,
@@ -73,7 +78,7 @@ app.use("/api/profile", profileRouter);
 app.use("/api/members", membersRouter);
 app.use("/api/like", likesRouter);
 app.use("/api/matches", matchesRouter);
-if (process.env.NODE_ENV !== "production" || ENABLE_RESET_LIKE_ENDPOINT) {
+if (enableResetRoutes) {
   app.use("/api/dev", devRouter);
 }
 
