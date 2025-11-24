@@ -13,6 +13,8 @@ import {
   ENABLE_RESET_LIKE_ENDPOINT,
   DEV_RESET_LIKE_ENDPOINT,
   SESSION_SECRET,
+  NODE_ENV,
+  IS_PRODUCTION,
 } from "./config.js";
 import { prisma } from "./lib/prisma.js";
 import { authRouter } from "./routes/auth.js";
@@ -25,17 +27,10 @@ import { matchesRouter } from "./routes/matches.js";
 import devRouter from "./routes/dev.js";
 import { availabilityRouter } from "./routes/availability.js";
 
-const NODE_ENV = process.env.NODE_ENV || "development";
 console.log(`Starting API server in ${NODE_ENV} mode`);
 
 const app = express();
 app.set("trust proxy", 1);
-
-if (NODE_ENV === "production" && !SESSION_SECRET) {
-  throw new Error(
-    "SESSION_SECRET must be set in production to issue secure session cookies."
-  );
-}
 
 function uniqueOrigins(origins: Array<string | undefined>) {
   return Array.from(
@@ -76,14 +71,14 @@ app.options("*", cors());
 app.use(express.json());
 app.use(
   session({
-    secret: SESSION_SECRET || "dev-session-secret",
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: NODE_ENV === "production",
+      secure: IS_PRODUCTION,
       // 本番はクロスサイトの LINE ログイン開始に備えて SameSite=None、ローカルは http でも動くように Lax。
-      sameSite: NODE_ENV === "production" ? "none" : "lax",
+      sameSite: IS_PRODUCTION ? "none" : "lax",
     },
   })
 );
