@@ -34,7 +34,7 @@ async function main() {
       data: {
         userId: adminUser.id,
         name: 'Admin User',
-        bio: 'Approves community requests.'
+        favoriteMeals: []
       }
     });
   }
@@ -53,28 +53,28 @@ async function main() {
     {
       email: 'yuta@example.com',
       name: '森 ゆうた',
-      bio: 'ラーメン屋を巡るのが趣味。落ち着いて話せる人とご飯に行きたい。',
+      favoriteMeals: ['ラーメン', 'つけ麺'],
       password: 'password',
       status: 'approved' as const
     },
     {
       email: 'sora@example.com',
       name: '林 そら',
-      bio: '新しいカフェ開拓が大好き。写真好きな人と情報交換したいです。',
+      favoriteMeals: ['カフェラテ', 'フレンチトースト'],
       password: 'password',
       status: 'approved' as const
     },
     {
       email: 'mei@example.com',
       name: '高橋 めい',
-      bio: '仕事終わりにサクッと行けるディナー仲間募集中！',
+      favoriteMeals: ['焼肉', 'タパス'],
       password: 'password',
       status: 'approved' as const
     },
     {
       email: 'pending@example.com',
       name: '仮メンバー ひなた',
-      bio: 'まずはコミュニティ参加待ちです。',
+      favoriteMeals: [],
       password: 'password',
       status: 'pending' as const
     }
@@ -98,8 +98,13 @@ async function main() {
 
       await prisma.profile.upsert({
         where: { userId: created.id },
-        update: { name: user.name, bio: user.bio, isSeedMember: true },
-        create: { userId: created.id, name: user.name, bio: user.bio, isSeedMember: true }
+        update: { name: user.name, favoriteMeals: user.favoriteMeals, isSeedMember: true },
+        create: {
+          userId: created.id,
+          name: user.name,
+          favoriteMeals: user.favoriteMeals,
+          isSeedMember: true
+        }
       });
 
       await prisma.communityMembership.upsert({

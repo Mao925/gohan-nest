@@ -29,7 +29,7 @@ matchesRouter.get('/', async (req, res) => {
     return {
       id: match.id,
       partnerName: partner.profile?.name || '',
-      partnerBio: partner.profile?.bio || '',
+      partnerFavoriteMeals: partner.profile?.favoriteMeals || [],
       matchedAt: match.createdAt.toISOString()
     };
   });

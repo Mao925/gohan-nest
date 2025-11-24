@@ -10,11 +10,11 @@ const matchSample = {
     createdAt: baseDate,
     user1: {
         id: 'me',
-        profile: { name: '自分', bio: 'bio' }
+        profile: { name: '自分', favoriteMeals: ['ラーメン'] }
     },
     user2: {
         id: 'partner-1',
-        profile: { name: 'Partner One', bio: 'bio' }
+        profile: { name: 'Partner One', favoriteMeals: ['餃子'] }
     }
 };
 const awaitingLike = {
@@ -26,7 +26,7 @@ const awaitingLike = {
     createdAt: baseDate,
     toUser: {
         id: 'awaiting',
-        profile: { name: 'Awaiting User', bio: null }
+        profile: { name: 'Awaiting User', favoriteMeals: [] }
     }
 };
 const rejectedLike = {
@@ -38,7 +38,7 @@ const rejectedLike = {
     createdAt: baseDate,
     toUser: {
         id: 'rejected',
-        profile: { name: 'Rejected User', bio: null }
+        profile: { name: 'Rejected User', favoriteMeals: [] }
     }
 };
 test('buildRelationshipResponse ensures id for every section', () => {
