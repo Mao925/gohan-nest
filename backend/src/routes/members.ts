@@ -23,7 +23,7 @@ membersRouter.get('/', async (req, res) => {
     members.map((m) => ({
       id: m.user.id,
       name: m.user.profile?.name || '',
-      bio: m.user.profile?.bio || '',
+      favoriteMeals: m.user.profile?.favoriteMeals || [],
       isSelf: m.user.id === req.user!.userId
     }))
   );

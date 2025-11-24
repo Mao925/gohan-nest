@@ -47,7 +47,7 @@ likesRouter.get('/next-candidate', async (req, res) => {
         candidate: {
             id: candidate.id,
             name: candidate.profile?.name || '',
-            bio: candidate.profile?.bio || ''
+            favoriteMeals: candidate.profile?.favoriteMeals || []
         }
     });
 });
@@ -83,7 +83,7 @@ likesRouter.post('/', async (req, res) => {
             let matched = false;
             let matchedAt;
             let partnerName = '';
-            let partnerBio = '';
+            let partnerFavoriteMeals = [];
             if (parsed.data.answer === 'YES') {
                 const reverse = await tx.like.findFirst({
                     where: {
@@ -116,17 +116,17 @@ likesRouter.post('/', async (req, res) => {
                         where: { userId: parsed.data.targetUserId }
                     });
                     partnerName = targetProfile?.name || '';
-                    partnerBio = targetProfile?.bio || '';
+                    partnerFavoriteMeals = targetProfile?.favoriteMeals || [];
                 }
             }
-            return { matched, matchedAt, partnerName, partnerBio };
+            return { matched, matchedAt, partnerName, partnerFavoriteMeals };
         });
         if (result.matched) {
             return res.json({
                 matched: true,
                 matchedAt: result.matchedAt,
                 partnerName: result.partnerName,
-                partnerBio: result.partnerBio
+                partnerFavoriteMeals: result.partnerFavoriteMeals
             });
         }
         return res.json({ matched: false });

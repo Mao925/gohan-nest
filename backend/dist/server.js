@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import session from "express-session";
-import { PORT, DEFAULT_COMMUNITY_CODE, DEFAULT_COMMUNITY_NAME, CLIENT_ORIGIN, SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, ENABLE_SEED_ADMIN, DEV_RESET_LIKE_ENDPOINT, SESSION_SECRET, } from "./config.js";
+import { PORT, DEFAULT_COMMUNITY_CODE, DEFAULT_COMMUNITY_NAME, CLIENT_ORIGIN, SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, ENABLE_SEED_ADMIN, DEV_RESET_LIKE_ENDPOINT, SESSION_SECRET, NODE_ENV, IS_PRODUCTION, } from "./config.js";
 import { prisma } from "./lib/prisma.js";
 import { authRouter } from "./routes/auth.js";
 import { communityRouter } from "./routes/community.js";
@@ -13,7 +13,6 @@ import { likesRouter } from "./routes/likes.js";
 import { matchesRouter } from "./routes/matches.js";
 import devRouter from "./routes/dev.js";
 import { availabilityRouter } from "./routes/availability.js";
-const NODE_ENV = process.env.NODE_ENV || "development";
 console.log(`Starting API server in ${NODE_ENV} mode`);
 const app = express();
 app.set("trust proxy", 1);
@@ -46,13 +45,14 @@ app.use(cors({
 app.options("*", cors());
 app.use(express.json());
 app.use(session({
-    secret: SESSION_SECRET || "dev-session-secret",
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
         httpOnly: true,
-        secure: NODE_ENV === "production",
-        sameSite: "lax",
+        secure: IS_PRODUCTION,
+        // 本番はクロスサイトの LINE ログイン開始に備えて SameSite=None、ローカルは http でも動くように Lax。
+        sameSite: IS_PRODUCTION ? "none" : "lax",
     },
 }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -99,7 +99,7 @@ async function ensureDefaultAdmin() {
             data: {
                 userId: admin.id,
                 name: "Admin User",
-                bio: "Auto seeded admin",
+                favoriteMeals: [],
             },
         });
     }

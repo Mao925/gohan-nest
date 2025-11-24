@@ -16,6 +16,17 @@ const configResult = dotenv.config({
 if (configResult.error && envFileName !== ".env") {
     dotenv.config();
 }
+const isProduction = runtimeEnv === "production";
+const rawSessionSecret = process.env.SESSION_SECRET?.trim();
+const sessionSecret = rawSessionSecret || (isProduction ? undefined : "dev-session-secret");
+if (isProduction && !sessionSecret) {
+    throw new Error("SESSION_SECRET must be set in production to issue secure session cookies.");
+}
+if (!isProduction && !rawSessionSecret) {
+    console.warn("SESSION_SECRET is not set. Using insecure default for development only.");
+}
+export const NODE_ENV = runtimeEnv;
+export const IS_PRODUCTION = isProduction;
 export const PORT = Number(process.env.PORT || 3001);
 export const JWT_SECRET = process.env.JWT_SECRET || "super-secret";
 export const DEFAULT_COMMUNITY_NAME = process.env.DEFAULT_COMMUNITY_NAME || "KING";
@@ -36,13 +47,17 @@ export const ADMIN_INVITE_CODE = process.env.ADMIN_INVITE_CODE;
 export const ENABLE_RESET_LIKE_ENDPOINT = process.env.ENABLE_RESET_LIKE_ENDPOINT === "true";
 export const DEV_RESET_LIKE_ENDPOINT = process.env.DEV_RESET_LIKE_ENDPOINT ||
     process.env.NEXT_PUBLIC_DEV_RESET_LIKE_ENDPOINT;
-export const SESSION_SECRET = process.env.SESSION_SECRET;
+export const SESSION_SECRET = sessionSecret;
+const missingLineEnv = [
+    { key: "LINE_CHANNEL_ID", value: LINE_CHANNEL_ID },
+    { key: "LINE_CHANNEL_SECRET", value: LINE_CHANNEL_SECRET },
+    { key: "LINE_REDIRECT_URI", value: LINE_REDIRECT_URI },
+]
+    .filter((item) => !item.value)
+    .map((item) => item.key);
 if (!DATABASE_URL) {
     console.warn("DATABASE_URL is not set. Prisma will fail to connect.");
 }
-if (!LINE_CHANNEL_ID || !LINE_CHANNEL_SECRET || !LINE_REDIRECT_URI) {
-    console.warn("LINE OAuth environment variables are not fully configured.");
-}
-if (!SESSION_SECRET) {
-    console.warn("SESSION_SECRET is not set. Session cookies will be insecure or fail to validate in production.");
+if (missingLineEnv.length > 0) {
+    console.error(`LINE OAuth environment variables are missing: ${missingLineEnv.join(", ")}`);
 }

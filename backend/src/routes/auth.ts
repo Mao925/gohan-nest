@@ -102,7 +102,7 @@ authRouter.post('/register', async (req, res) => {
       data: {
         userId: createdUser.id,
         name,
-        bio: ''
+        favoriteMeals: []
       }
     });
 
@@ -152,7 +152,7 @@ authRouter.post('/register-admin', async (req, res) => {
         data: {
           userId: createdUser.id,
           name,
-          bio: ''
+          favoriteMeals: []
         }
       });
 
@@ -329,7 +329,7 @@ authRouter.get('/line/callback', async (req, res) => {
           data: {
             userId: createdUser.id,
             name: profileJson.displayName || 'LINE User',
-            bio: ''
+            favoriteMeals: []
           }
         });
 
