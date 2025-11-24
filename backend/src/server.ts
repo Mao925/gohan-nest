@@ -130,7 +130,7 @@ async function ensureDefaultAdmin() {
       data: {
         userId: admin.id,
         name: "Admin User",
-        bio: "Auto seeded admin",
+        favoriteMeals: [],
       },
     });
   }

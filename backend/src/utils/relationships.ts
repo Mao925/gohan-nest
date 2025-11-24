@@ -4,7 +4,7 @@ type ProfileWithOptionalData = {
   id: string;
   profile: {
     name?: string | null;
-    bio?: string | null;
+    favoriteMeals?: string[] | null;
   } | null;
 };
 
@@ -22,7 +22,7 @@ export type RelationshipCard = {
   relationshipId: string;
   targetUserId: string;
   name: string;
-  bio: string;
+  favoriteMeals: string[];
   matched: boolean;
   myAnswer: 'YES' | 'NO';
   partnerAnswer: 'YES' | 'NO' | 'UNANSWERED';
@@ -67,7 +67,7 @@ export function buildRelationshipPayload(params: {
     relationshipId,
     targetUserId: params.like.toUserId,
     name: params.like.toUser.profile?.name || '',
-    bio: params.like.toUser.profile?.bio || '',
+    favoriteMeals: params.like.toUser.profile?.favoriteMeals || [],
     matched,
     myAnswer: params.myAnswer,
     partnerAnswer: params.partnerAnswer,
@@ -96,7 +96,7 @@ export function buildRelationshipResponse(params: {
       targetUserId: partner.id,
       matchId: match.id,
       name: partner.profile?.name || '',
-      bio: partner.profile?.bio || '',
+      favoriteMeals: partner.profile?.favoriteMeals || [],
       matchedAt: match.createdAt.toISOString(),
       myAnswer: 'YES',
       partnerAnswer: 'YES',
@@ -120,7 +120,7 @@ export function buildRelationshipResponse(params: {
       relationshipId,
       targetUserId: like.toUserId,
       name: like.toUser.profile?.name || '',
-      bio: like.toUser.profile?.bio || '',
+      favoriteMeals: like.toUser.profile?.favoriteMeals || [],
       myAnswer: like.answer,
       partnerAnswer,
       matched: false,
