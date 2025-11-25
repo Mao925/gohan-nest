@@ -15,6 +15,7 @@ import {
   LINE_CHANNEL_SECRET,
   LINE_REDIRECT_URI
 } from '../config.js';
+import { generateSignedLineState, verifySignedLineState } from '../utils/lineState.js';
 
 type LineTokenResponse = {
   access_token: string;
@@ -198,18 +199,10 @@ authRouter.get('/line/login', (req, res) => {
     return res.status(500).json({ message: 'LINE login is not configured' });
   }
 
-  if (!req.session) {
-    return res.status(500).json({ message: 'Session is not available' });
-  }
+  const { token: stateToken, payload: statePayload } = generateSignedLineState();
 
-  const state = generateRandomString(16);
-  const nonce = generateRandomString(16);
-  req.session.lineState = { value: state, nonce, createdAt: Date.now() };
-
-  console.log('LINE login: generated state', state);
-  console.log('LINE login: session after set', {
-    sessionID: req.sessionID,
-    lineState: req.session.lineState,
+  console.log('LINE login: generated signed state', {
+    payload: statePayload,
     ua: req.headers['user-agent'],
     cookie: req.headers.cookie,
   });
@@ -218,9 +211,9 @@ authRouter.get('/line/login', (req, res) => {
     response_type: 'code',
     client_id: LINE_CHANNEL_ID!,
     redirect_uri: LINE_REDIRECT_URI!,
-    state,
+    state: stateToken,
     scope: 'openid profile',
-    nonce
+    nonce: statePayload.nonce
   });
 
   const authorizationUrl = `https://access.line.me/oauth2/v2.1/authorize?${searchParams.toString()}`;
@@ -235,37 +228,24 @@ authRouter.get('/line/callback', async (req, res) => {
 
   const code = typeof req.query.code === 'string' ? req.query.code : null;
   const state = typeof req.query.state === 'string' ? req.query.state : null;
-  const isDev = process.env.NODE_ENV !== 'production';
-  const sessionState = req.session?.lineState;
 
   console.log('LINE callback: query', { code, state });
-  console.log('LINE callback: session', {
-    sessionID: req.sessionID,
-    lineState: sessionState,
-    ua: req.headers['user-agent'],
-    cookie: req.headers.cookie,
-  });
 
   if (!code || !state) {
     return res.status(400).json({ message: 'Missing code or state' });
   }
 
-  const isStateExpired =
-    !sessionState || Date.now() - sessionState.createdAt > STATE_TTL_MS;
+  const verification = verifySignedLineState(state, STATE_TTL_MS);
 
-  if (!sessionState || sessionState.value !== state || isStateExpired) {
-    if (isDev) {
-      console.warn('LINE callback: invalid state, but skipping check in development', {
-        sessionState,
-        state,
-      });
-    } else {
-      return res.status(400).json({ message: 'Invalid or expired state' });
-    }
-  }
+  console.log('LINE callback: state verification', {
+    result: verification.valid ? 'valid' : verification.reason,
+    payload: verification.valid ? verification.payload : undefined,
+    ua: req.headers['user-agent'],
+    cookie: req.headers.cookie,
+  });
 
-  if (req.session) {
-    req.session.lineState = undefined;
+  if (!verification.valid) {
+    return res.status(400).json({ message: 'Invalid or expired state' });
   }
 
   try {
