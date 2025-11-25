@@ -160,16 +160,19 @@ export const groupMealsRouter = Router();
 
 groupMealsRouter.use(authMiddleware);
 
-// admin ユーザーには一覧/削除のみ許可し、それ以外は弾く。一般ユーザーは全機能利用可。
+// admin ユーザーには一覧/詳細/削除のみ許可し、それ以外は弾く。一般ユーザーは全機能利用可。
 groupMealsRouter.use((req, res, next) => {
   if (!req.user?.isAdmin) {
     return next();
   }
 
-  const isListRequest = req.method === 'GET' && (req.path === '/' || req.path === '');
+  const isListRequest =
+    req.method === 'GET' && (req.path === '/' || req.path === '');
+  const isDetailRequest =
+    req.method === 'GET' && /^\/[0-9a-fA-F-]+$/.test(req.path);
   const isDeleteRequest = req.method === 'DELETE';
 
-  if (isListRequest || isDeleteRequest) {
+  if (isListRequest || isDetailRequest || isDeleteRequest) {
     return next();
   }
 
@@ -251,6 +254,45 @@ groupMealsRouter.get('/', async (req, res) => {
   } catch (error) {
     console.error('LIST GROUP MEALS ERROR:', error);
     return res.status(500).json({ message: 'Failed to fetch group meals' });
+  }
+});
+
+groupMealsRouter.get('/:id', async (req, res) => {
+  const parsedParams = idParamSchema.safeParse(req.params);
+  if (!parsedParams.success) {
+    return res
+      .status(400)
+      .json({ message: 'Invalid group meal id', issues: parsedParams.error.flatten() });
+  }
+
+  const groupMealId = parsedParams.data.id;
+
+  // admin 以外は membership 必須
+  const membership = req.user?.isAdmin ? null : await getApprovedMembership(req.user!.userId);
+
+  if (!membership && !req.user?.isAdmin) {
+    return res.status(400).json(membershipRequiredResponse);
+  }
+
+  try {
+    const groupMeal = await prisma.groupMeal.findUnique({
+      where: { id: groupMealId },
+      include: groupMealInclude
+    });
+
+    if (!groupMeal) {
+      return res.status(404).json({ message: 'Group meal not found' });
+    }
+
+    // 一般ユーザーの場合は、同じコミュニティの箱のみ閲覧可能
+    if (!req.user?.isAdmin && membership && groupMeal.communityId !== membership.communityId) {
+      return res.status(403).json({ message: '別のコミュニティの募集です' });
+    }
+
+    return res.json(buildGroupMealPayload(groupMeal, req.user!.userId));
+  } catch (error) {
+    console.error('GET GROUP MEAL DETAIL ERROR:', error);
+    return res.status(500).json({ message: 'Failed to fetch group meal detail' });
   }
 });
 
