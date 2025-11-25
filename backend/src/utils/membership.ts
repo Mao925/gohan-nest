@@ -2,6 +2,18 @@ import type { MembershipStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 
 export type CommunityStatus = 'UNAPPLIED' | 'PENDING' | 'APPROVED';
+export type CommunityPhase = 'NO_COMMUNITY' | 'PENDING' | 'APPROVED';
+
+export type CommunitySummary = {
+  id: string;
+  name: string;
+};
+
+export type CommunitySelfStatus = {
+  phase: CommunityPhase;
+  isAdmin: boolean;
+  community: CommunitySummary | null;
+};
 
 export function mapCommunityStatus(status?: MembershipStatus | null): CommunityStatus {
   if (status === 'approved') {
@@ -11,6 +23,16 @@ export function mapCommunityStatus(status?: MembershipStatus | null): CommunityS
     return 'PENDING';
   }
   return 'UNAPPLIED';
+}
+
+export function mapCommunityPhase(status?: MembershipStatus | null): CommunityPhase {
+  if (status === 'approved') {
+    return 'APPROVED';
+  }
+  if (status === 'pending') {
+    return 'PENDING';
+  }
+  return 'NO_COMMUNITY';
 }
 
 export async function getLatestMembership(userId: string) {
@@ -49,4 +71,24 @@ export async function ensureSameCommunity(userId: string, targetUserId: string, 
   if (userId === targetUserId) {
     throw new Error('自分自身には回答できません');
   }
+}
+
+export async function buildCommunitySelfStatus(userId: string): Promise<CommunitySelfStatus> {
+  const membership = await getLatestMembership(userId);
+  const phase = mapCommunityPhase(membership?.status ?? null);
+  const community =
+    membership && phase !== 'NO_COMMUNITY'
+      ? { id: membership.community.id, name: membership.community.name }
+      : null;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isAdmin: true }
+  });
+
+  return {
+    phase,
+    isAdmin: user?.isAdmin ?? false,
+    community
+  };
 }
