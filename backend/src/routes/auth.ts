@@ -210,6 +210,8 @@ authRouter.get('/line/login', (req, res) => {
   console.log('LINE login: session after set', {
     sessionID: req.sessionID,
     lineState: req.session.lineState,
+    ua: req.headers['user-agent'],
+    cookie: req.headers.cookie,
   });
 
   const searchParams = new URLSearchParams({
@@ -222,6 +224,7 @@ authRouter.get('/line/login', (req, res) => {
   });
 
   const authorizationUrl = `https://access.line.me/oauth2/v2.1/authorize?${searchParams.toString()}`;
+  res.setHeader('Cache-Control', 'no-store');
   return res.redirect(authorizationUrl);
 });
 
@@ -239,6 +242,8 @@ authRouter.get('/line/callback', async (req, res) => {
   console.log('LINE callback: session', {
     sessionID: req.sessionID,
     lineState: sessionState,
+    ua: req.headers['user-agent'],
+    cookie: req.headers.cookie,
   });
 
   if (!code || !state) {

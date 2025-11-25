@@ -77,8 +77,8 @@ app.use(
     cookie: {
       httpOnly: true,
       secure: IS_PRODUCTION,
-      // 本番はクロスサイトの LINE ログイン開始に備えて SameSite=None、ローカルは http でも動くように Lax。
-      sameSite: IS_PRODUCTION ? "none" : "lax",
+      // Safari での state 破損を避けるため、本番も Lax に統一する。
+      sameSite: "lax",
     },
   })
 );
