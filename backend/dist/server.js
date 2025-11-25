@@ -13,6 +13,7 @@ import { likesRouter } from "./routes/likes.js";
 import { matchesRouter } from "./routes/matches.js";
 import devRouter from "./routes/dev.js";
 import { availabilityRouter } from "./routes/availability.js";
+import { groupMealsRouter } from "./routes/groupMeals.js";
 console.log(`Starting API server in ${NODE_ENV} mode`);
 const app = express();
 app.set("trust proxy", 1);
@@ -51,8 +52,8 @@ app.use(session({
     cookie: {
         httpOnly: true,
         secure: IS_PRODUCTION,
-        // 本番はクロスサイトの LINE ログイン開始に備えて SameSite=None、ローカルは http でも動くように Lax。
-        sameSite: IS_PRODUCTION ? "none" : "lax",
+        // Safari での state 破損を避けるため、本番も Lax に統一する。
+        sameSite: "lax",
     },
 }));
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -64,6 +65,7 @@ app.use("/api/members", membersRouter);
 app.use("/api/like", likesRouter);
 app.use("/api/matches", matchesRouter);
 app.use("/api/availability", availabilityRouter);
+app.use("/api/group-meals", groupMealsRouter);
 app.use("/api/dev", devRouter);
 async function ensureDefaultCommunity() {
     await prisma.community.upsert({

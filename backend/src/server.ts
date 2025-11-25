@@ -26,6 +26,7 @@ import { likesRouter } from "./routes/likes.js";
 import { matchesRouter } from "./routes/matches.js";
 import devRouter from "./routes/dev.js";
 import { availabilityRouter } from "./routes/availability.js";
+import { groupMealsRouter } from "./routes/groupMeals.js";
 
 console.log(`Starting API server in ${NODE_ENV} mode`);
 
@@ -92,6 +93,7 @@ app.use("/api/members", membersRouter);
 app.use("/api/like", likesRouter);
 app.use("/api/matches", matchesRouter);
 app.use("/api/availability", availabilityRouter);
+app.use("/api/group-meals", groupMealsRouter);
 app.use("/api/dev", devRouter);
 
 async function ensureDefaultCommunity() {
