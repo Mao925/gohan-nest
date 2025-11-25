@@ -160,12 +160,20 @@ export const groupMealsRouter = Router();
 
 groupMealsRouter.use(authMiddleware);
 
-// admin ユーザーには提供しない API なのでここで弾く
+// admin ユーザーには一覧/削除のみ許可し、それ以外は弾く。一般ユーザーは全機能利用可。
 groupMealsRouter.use((req, res, next) => {
-  if (req.user?.isAdmin) {
-    return res.status(403).json({ message: '一般ユーザーのみ利用できます' });
+  if (!req.user?.isAdmin) {
+    return next();
   }
-  next();
+
+  const isListRequest = req.method === 'GET' && (req.path === '/' || req.path === '');
+  const isDeleteRequest = req.method === 'DELETE';
+
+  if (isListRequest || isDeleteRequest) {
+    return next();
+  }
+
+  return res.status(403).json({ message: '一般ユーザーのみ利用できます' });
 });
 
 groupMealsRouter.post('/', async (req, res) => {
@@ -215,8 +223,8 @@ groupMealsRouter.post('/', async (req, res) => {
 });
 
 groupMealsRouter.get('/', async (req, res) => {
-  const membership = await getApprovedMembership(req.user!.userId);
-  if (!membership) {
+  const membership = req.user?.isAdmin ? null : await getApprovedMembership(req.user!.userId);
+  if (!membership && !req.user?.isAdmin) {
     return res.status(400).json(membershipRequiredResponse);
   }
 
@@ -227,7 +235,7 @@ groupMealsRouter.get('/', async (req, res) => {
   try {
     const groupMeals = await prisma.groupMeal.findMany({
       where: {
-        communityId: membership.communityId,
+        ...(membership ? { communityId: membership.communityId } : {}),
         status: { in: [GroupMealStatus.OPEN, GroupMealStatus.FULL] },
         date: { gte: today }
       },
@@ -243,6 +251,49 @@ groupMealsRouter.get('/', async (req, res) => {
   } catch (error) {
     console.error('LIST GROUP MEALS ERROR:', error);
     return res.status(500).json({ message: 'Failed to fetch group meals' });
+  }
+});
+
+groupMealsRouter.delete('/:id', async (req, res) => {
+  const parsedParams = idParamSchema.safeParse(req.params);
+  if (!parsedParams.success) {
+    return res
+      .status(400)
+      .json({ message: 'Invalid group meal id', issues: parsedParams.error.flatten() });
+  }
+  const groupMealId = parsedParams.data.id;
+
+  const groupMeal = await prisma.groupMeal.findUnique({
+    where: { id: groupMealId },
+    include: { participants: true }
+  });
+
+  if (!groupMeal) {
+    return res.status(404).json({ message: 'Group meal not found' });
+  }
+
+  const isAdmin = req.user?.isAdmin;
+  const isHost = groupMeal.hostUserId === req.user!.userId;
+
+  if (!isAdmin && !isHost) {
+    return res.status(403).json({ message: '削除できるのはホストまたは管理者のみです' });
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.groupMealParticipant.deleteMany({
+        where: { groupMealId: groupMeal.id }
+      });
+
+      await tx.groupMeal.delete({
+        where: { id: groupMeal.id }
+      });
+    });
+
+    return res.status(204).send();
+  } catch (error) {
+    console.error('DELETE GROUP MEAL ERROR:', error);
+    return res.status(500).json({ message: 'Failed to delete group meal' });
   }
 });
 
