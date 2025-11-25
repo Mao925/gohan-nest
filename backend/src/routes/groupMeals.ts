@@ -653,3 +653,78 @@ groupMealsRouter.post('/:id/join', async (req, res) => {
     return res.status(500).json({ message: 'Failed to join group meal' });
   }
 });
+
+groupMealsRouter.post('/:id/leave', async (req, res) => {
+  // 1. パラメータ検証
+  const parsedParams = idParamSchema.safeParse(req.params);
+  if (!parsedParams.success) {
+    return res
+      .status(400)
+      .json({ message: 'Invalid group meal id', issues: parsedParams.error.flatten() });
+  }
+  const groupMealId = parsedParams.data.id;
+
+  // 2. 一般ユーザーは membership 必須（admin は middleware で既にブロックされる前提）
+  const membership = await getApprovedMembership(req.user!.userId);
+  if (!membership) {
+    return res.status(400).json(membershipRequiredResponse);
+  }
+
+  try {
+    // 3. 対象のグループを取得（参加者付き）
+    const groupMeal = await prisma.groupMeal.findUnique({
+      where: { id: groupMealId },
+      include: { participants: true }
+    });
+
+    if (!groupMeal) {
+      return res.status(404).json({ message: 'Group meal not found' });
+    }
+
+    // 4. コミュニティ一致チェック
+    if (groupMeal.communityId !== membership.communityId) {
+      return res.status(403).json({ message: '別のコミュニティの募集です' });
+    }
+
+    // 5. 自分の参加情報を探す
+    const participant = groupMeal.participants.find((p) => p.userId === req.user!.userId);
+
+    if (!participant) {
+      return res.status(400).json({ message: 'この募集には参加していません' });
+    }
+
+    if (participant.isHost) {
+      return res
+        .status(400)
+        .json({ message: 'ホストは退会できません。箱を削除してください。' });
+    }
+
+    if (participant.status !== GroupMealParticipantStatus.JOINED) {
+      // INVITED や DECLINED/CANCELLED の場合は「参加中ではない」とみなす
+      return res.status(400).json({ message: '参加中の募集ではありません' });
+    }
+
+    // 6. トランザクション内でステータス更新 & 定員ステータス同期
+    await prisma.$transaction(async (tx) => {
+      await tx.groupMealParticipant.update({
+        where: {
+          groupMealId_userId: {
+            groupMealId,
+            userId: req.user!.userId
+          }
+        },
+        data: {
+          status: GroupMealParticipantStatus.CANCELLED
+        }
+      });
+
+      await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status);
+    });
+
+    const updated = await fetchGroupMeal(groupMealId);
+    return res.json(buildGroupMealPayload(updated!, req.user!.userId));
+  } catch (error) {
+    console.error('LEAVE GROUP MEAL ERROR:', error);
+    return res.status(500).json({ message: 'Failed to leave group meal' });
+  }
+});
