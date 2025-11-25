@@ -114,14 +114,15 @@ async function syncGroupMealStatus(db, groupMealId, capacity, currentStatus) {
 }
 export const groupMealsRouter = Router();
 groupMealsRouter.use(authMiddleware);
-// admin ユーザーには一覧/削除のみ許可し、それ以外は弾く。一般ユーザーは全機能利用可。
+// admin ユーザーには一覧/詳細/削除のみ許可し、それ以外は弾く。一般ユーザーは全機能利用可。
 groupMealsRouter.use((req, res, next) => {
     if (!req.user?.isAdmin) {
         return next();
     }
     const isListRequest = req.method === 'GET' && (req.path === '/' || req.path === '');
+    const isDetailRequest = req.method === 'GET' && /^\/[0-9a-fA-F-]+$/.test(req.path);
     const isDeleteRequest = req.method === 'DELETE';
-    if (isListRequest || isDeleteRequest) {
+    if (isListRequest || isDetailRequest || isDeleteRequest) {
         return next();
     }
     return res.status(403).json({ message: '一般ユーザーのみ利用できます' });
@@ -190,6 +191,38 @@ groupMealsRouter.get('/', async (req, res) => {
     catch (error) {
         console.error('LIST GROUP MEALS ERROR:', error);
         return res.status(500).json({ message: 'Failed to fetch group meals' });
+    }
+});
+groupMealsRouter.get('/:id', async (req, res) => {
+    const parsedParams = idParamSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+        return res
+            .status(400)
+            .json({ message: 'Invalid group meal id', issues: parsedParams.error.flatten() });
+    }
+    const groupMealId = parsedParams.data.id;
+    // admin 以外は membership 必須
+    const membership = req.user?.isAdmin ? null : await getApprovedMembership(req.user.userId);
+    if (!membership && !req.user?.isAdmin) {
+        return res.status(400).json(membershipRequiredResponse);
+    }
+    try {
+        const groupMeal = await prisma.groupMeal.findUnique({
+            where: { id: groupMealId },
+            include: groupMealInclude
+        });
+        if (!groupMeal) {
+            return res.status(404).json({ message: 'Group meal not found' });
+        }
+        // 一般ユーザーの場合は、同じコミュニティの箱のみ閲覧可能
+        if (!req.user?.isAdmin && membership && groupMeal.communityId !== membership.communityId) {
+            return res.status(403).json({ message: '別のコミュニティの募集です' });
+        }
+        return res.json(buildGroupMealPayload(groupMeal, req.user.userId));
+    }
+    catch (error) {
+        console.error('GET GROUP MEAL DETAIL ERROR:', error);
+        return res.status(500).json({ message: 'Failed to fetch group meal detail' });
     }
 });
 groupMealsRouter.delete('/:id', async (req, res) => {
@@ -508,5 +541,69 @@ groupMealsRouter.post('/:id/join', async (req, res) => {
     catch (error) {
         console.error('JOIN GROUP MEAL ERROR:', error);
         return res.status(500).json({ message: 'Failed to join group meal' });
+    }
+});
+groupMealsRouter.post('/:id/leave', async (req, res) => {
+    // 1. パラメータ検証
+    const parsedParams = idParamSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+        return res
+            .status(400)
+            .json({ message: 'Invalid group meal id', issues: parsedParams.error.flatten() });
+    }
+    const groupMealId = parsedParams.data.id;
+    // 2. 一般ユーザーは membership 必須（admin は middleware で既にブロックされる前提）
+    const membership = await getApprovedMembership(req.user.userId);
+    if (!membership) {
+        return res.status(400).json(membershipRequiredResponse);
+    }
+    try {
+        // 3. 対象のグループを取得（参加者付き）
+        const groupMeal = await prisma.groupMeal.findUnique({
+            where: { id: groupMealId },
+            include: { participants: true }
+        });
+        if (!groupMeal) {
+            return res.status(404).json({ message: 'Group meal not found' });
+        }
+        // 4. コミュニティ一致チェック
+        if (groupMeal.communityId !== membership.communityId) {
+            return res.status(403).json({ message: '別のコミュニティの募集です' });
+        }
+        // 5. 自分の参加情報を探す
+        const participant = groupMeal.participants.find((p) => p.userId === req.user.userId);
+        if (!participant) {
+            return res.status(400).json({ message: 'この募集には参加していません' });
+        }
+        if (participant.isHost) {
+            return res
+                .status(400)
+                .json({ message: 'ホストは退会できません。箱を削除してください。' });
+        }
+        if (participant.status !== GroupMealParticipantStatus.JOINED) {
+            // INVITED や DECLINED/CANCELLED の場合は「参加中ではない」とみなす
+            return res.status(400).json({ message: '参加中の募集ではありません' });
+        }
+        // 6. トランザクション内でステータス更新 & 定員ステータス同期
+        await prisma.$transaction(async (tx) => {
+            await tx.groupMealParticipant.update({
+                where: {
+                    groupMealId_userId: {
+                        groupMealId,
+                        userId: req.user.userId
+                    }
+                },
+                data: {
+                    status: GroupMealParticipantStatus.CANCELLED
+                }
+            });
+            await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status);
+        });
+        const updated = await fetchGroupMeal(groupMealId);
+        return res.json(buildGroupMealPayload(updated, req.user.userId));
+    }
+    catch (error) {
+        console.error('LEAVE GROUP MEAL ERROR:', error);
+        return res.status(500).json({ message: 'Failed to leave group meal' });
     }
 });
