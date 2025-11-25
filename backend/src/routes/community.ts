@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { getCommunityStatus } from '../utils/membership.js';
+import { buildCommunitySelfStatus, getCommunityStatus } from '../utils/membership.js';
 import { AUTO_APPROVE_MEMBERS } from '../config.js';
 
 const joinSchema = z.object({
@@ -48,4 +48,9 @@ communityRouter.get('/status', authMiddleware, async (req, res) => {
     status: communityStatus,
     communityName: membership?.status === 'approved' ? membership.community?.name || null : null
   });
+});
+
+communityRouter.get('/self-status', authMiddleware, async (req, res) => {
+  const status = await buildCommunitySelfStatus(req.user!.userId);
+  return res.json(status);
 });
