@@ -6,6 +6,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { ensureSameCommunity, getApprovedMembership } from '../utils/membership.js';
 import { INCLUDE_SEED_USERS } from '../config.js';
 import { buildRelationshipPayload, formatPartnerAnswer } from '../utils/relationships.js';
+import { sendMatchNotification } from '../lib/line-messaging.js';
 
 const likeSchema = z.object({
   targetUserId: z.string().uuid(),
@@ -138,6 +139,24 @@ likesRouter.post('/', async (req, res) => {
     });
 
     if (result.matched) {
+      const [self, partner] = await Promise.all([
+        prisma.user.findUnique({
+          where: { id: req.user!.userId },
+          select: { lineUserId: true, profile: { select: { name: true } } }
+        }),
+        prisma.user.findUnique({
+          where: { id: parsed.data.targetUserId },
+          select: { lineUserId: true, profile: { select: { name: true } } }
+        })
+      ]);
+
+      if (self?.lineUserId && partner?.profile?.name) {
+        await sendMatchNotification(self.lineUserId, partner.profile.name);
+      }
+      if (partner?.lineUserId && self?.profile?.name) {
+        await sendMatchNotification(partner.lineUserId, self.profile.name);
+      }
+
       return res.json({
         matched: true,
         matchedAt: result.matchedAt,
@@ -294,6 +313,26 @@ likesRouter.patch('/:targetUserId', async (req, res) => {
     partnerAnswer: formatPartnerAnswer(partnerLike?.answer),
     matchRecord: result.matchRecord ?? undefined
   });
+
+  if (payload.relationship.matched) {
+    const [self, partner] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: req.user!.userId },
+        select: { lineUserId: true, profile: { select: { name: true } } }
+      }),
+      prisma.user.findUnique({
+        where: { id: targetUserId },
+        select: { lineUserId: true, profile: { select: { name: true } } }
+      })
+    ]);
+
+    if (self?.lineUserId && partner?.profile?.name) {
+      await sendMatchNotification(self.lineUserId, partner.profile.name);
+    }
+    if (partner?.lineUserId && self?.profile?.name) {
+      await sendMatchNotification(partner.lineUserId, self.profile.name);
+    }
+  }
 
   res.json({
     updated: true,
