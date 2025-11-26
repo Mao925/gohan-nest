@@ -8,6 +8,15 @@ export function mapCommunityStatus(status) {
     }
     return 'UNAPPLIED';
 }
+export function mapCommunityPhase(status) {
+    if (status === 'approved') {
+        return 'APPROVED';
+    }
+    if (status === 'pending') {
+        return 'PENDING';
+    }
+    return 'NO_COMMUNITY';
+}
 export async function getLatestMembership(userId) {
     const membership = await prisma.communityMembership.findFirst({
         where: { userId },
@@ -41,4 +50,20 @@ export async function ensureSameCommunity(userId, targetUserId, communityId) {
     if (userId === targetUserId) {
         throw new Error('自分自身には回答できません');
     }
+}
+export async function buildCommunitySelfStatus(userId) {
+    const membership = await getLatestMembership(userId);
+    const phase = mapCommunityPhase(membership?.status ?? null);
+    const community = membership && phase !== 'NO_COMMUNITY'
+        ? { id: membership.community.id, name: membership.community.name }
+        : null;
+    const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { isAdmin: true }
+    });
+    return {
+        phase,
+        isAdmin: user?.isAdmin ?? false,
+        community
+    };
 }
