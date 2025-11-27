@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { AvailabilityStatus, TimeSlot, Weekday } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { getApprovedMembership } from '../utils/membership.js';
+import { ensureSameCommunity, getApprovedMembership } from '../utils/membership.js';
+import { getPairAvailabilitySlots } from '../utils/availability.js';
 const availabilitySchema = z.array(z.object({
     weekday: z.nativeEnum(Weekday),
     timeSlot: z.nativeEnum(TimeSlot),
@@ -21,6 +22,8 @@ availabilityRouter.use((req, res, next) => {
     }
     next();
 });
+// この API はあくまで「曜日 x 昼夜」の週次パターンを管理するもの。
+// フロントエンドが「今日から7日間」を表示する場合も、日付→Weekdayに変換してこの週次APIを呼び出す。
 availabilityRouter.get('/', async (req, res) => {
     try {
         const slots = await prisma.availabilitySlot.findMany({
@@ -73,6 +76,33 @@ availabilityRouter.put('/', async (req, res) => {
     catch (error) {
         console.error('UPSERT AVAILABILITY ERROR:', error);
         return res.status(500).json({ message: 'Failed to update availability' });
+    }
+});
+// 2人の曜日 x timeSlot で両者の空き状態を返す
+availabilityRouter.get('/pair/:partnerUserId', async (req, res) => {
+    const parsedParams = overlapParamsSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+        return res.status(400).json({ message: 'Invalid partnerUserId', issues: parsedParams.error.flatten() });
+    }
+    const currentUserId = req.user.userId;
+    const partnerUserId = parsedParams.data.partnerUserId;
+    try {
+        const membership = await getApprovedMembership(currentUserId);
+        if (!membership) {
+            return res.status(403).json({ message: 'コミュニティ参加後にご利用ください' });
+        }
+        try {
+            await ensureSameCommunity(currentUserId, partnerUserId, membership.communityId);
+        }
+        catch (error) {
+            return res.status(403).json({ message: error.message });
+        }
+        const slots = await getPairAvailabilitySlots(currentUserId, partnerUserId);
+        return res.json({ slots });
+    }
+    catch (error) {
+        console.error('FETCH PAIR AVAILABILITY ERROR:', error);
+        return res.status(500).json({ message: 'Failed to fetch pair availability' });
     }
 });
 // 指定ユーザーと自分の AVAILABLE スロットの交差を返す

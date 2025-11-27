@@ -286,30 +286,38 @@ groupMealsRouter.get('/:id/candidates', async (req, res) => {
     }
     const participantIds = new Set(groupMeal.participants.map((p) => p.userId));
     try {
-        const candidates = await prisma.user.findMany({
+        const baseCandidates = await prisma.user.findMany({
             where: {
                 isAdmin: false,
                 id: { notIn: Array.from(participantIds) },
                 memberships: {
                     some: { communityId: groupMeal.communityId, status: 'approved' }
-                },
-                availability: {
-                    some: {
-                        weekday: groupMeal.weekday,
-                        timeSlot: groupMeal.timeSlot,
-                        status: AvailabilityStatus.AVAILABLE
-                    }
                 }
             },
             include: { profile: true }
         });
-        return res.json({
-            candidates: candidates.map((u) => ({
-                userId: u.id,
-                name: u.profile?.name || '',
-                favoriteMeals: u.profile?.favoriteMeals || []
-            }))
+        if (baseCandidates.length === 0) {
+            return res.json({ candidates: [] });
+        }
+        const availableSlots = await prisma.availabilitySlot.findMany({
+            where: {
+                userId: { in: baseCandidates.map((c) => c.id) },
+                weekday: groupMeal.weekday,
+                timeSlot: groupMeal.timeSlot,
+                status: AvailabilityStatus.AVAILABLE
+            },
+            select: { userId: true }
         });
+        const availableUserIds = new Set(availableSlots.map((s) => s.userId));
+        const candidates = baseCandidates
+            .map((u) => ({
+            userId: u.id,
+            name: u.profile?.name ?? '未設定',
+            favoriteMeals: u.profile?.favoriteMeals || [],
+            isAvailableForSlot: availableUserIds.has(u.id)
+        }))
+            .sort((a, b) => Number(b.isAvailableForSlot) - Number(a.isAvailableForSlot));
+        return res.json({ candidates });
     }
     catch (error) {
         console.error('FETCH GROUP MEAL CANDIDATES ERROR:', error);

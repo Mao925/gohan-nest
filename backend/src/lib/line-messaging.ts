@@ -1,10 +1,10 @@
-import { Client, ClientConfig, Message } from '@line/bot-sdk';
+// backend/src/lib/line-messaging.ts
+import { Client, ClientConfig, Message } from "@line/bot-sdk";
 
 const channelAccessToken = process.env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN;
 
 if (!channelAccessToken) {
-  // 起動時に気づけるようにしておく
-  throw new Error('LINE_MESSAGING_CHANNEL_ACCESS_TOKEN is not set');
+  throw new Error("LINE_MESSAGING_CHANNEL_ACCESS_TOKEN is not set");
 }
 
 const config: ClientConfig = {
@@ -13,26 +13,34 @@ const config: ClientConfig = {
 
 const lineClient = new Client(config);
 
-/**
- * マッチ成立時にユーザーへ送る通知メッセージを送信する。
- * @param lineUserId LINEのユーザーID（U から始まるID）
- * @param partnerName マッチした相手の名前
- */
 export async function sendMatchNotification(
   lineUserId: string,
-  partnerName: string,
+  partnerName: string
 ) {
+  console.log("[LINE] sendMatchNotification called", {
+    lineUserId,
+    partnerName,
+  });
+
   const messages: Message[] = [
     {
-      type: 'text',
+      type: "text",
       text: `誰かとあなたがマッチしました！\n今回のお相手: ${partnerName}`,
     },
   ];
 
   try {
-    await lineClient.pushMessage(lineUserId, messages);
-  } catch (err) {
-    // ここはあとで logger に差し替えてもOK
-    console.error('Failed to send LINE match notification', err);
+    const res = await lineClient.pushMessage(lineUserId, messages);
+    console.log("[LINE] pushMessage success", res); // res は基本 {} だが一応
+  } catch (err: any) {
+    // line-bot-sdk のエラー詳細は originalError.response に入ることが多い
+    // :contentReference[oaicite:0]{index=0}
+    const status = err?.status || err?.originalError?.response?.status;
+    const data = err?.originalError?.response?.data;
+    console.error("Failed to send LINE match notification", {
+      status,
+      data,
+      raw: err,
+    });
   }
 }
