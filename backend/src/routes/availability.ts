@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { AvailabilityStatus, TimeSlot, Weekday } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { getApprovedMembership } from '../utils/membership.js';
+import { ensureSameCommunity, getApprovedMembership } from '../utils/membership.js';
+import { getPairAvailabilitySlots } from '../utils/availability.js';
 
 const availabilitySchema = z.array(
   z.object({
@@ -87,6 +88,36 @@ availabilityRouter.put('/', async (req, res) => {
   } catch (error) {
     console.error('UPSERT AVAILABILITY ERROR:', error);
     return res.status(500).json({ message: 'Failed to update availability' });
+  }
+});
+
+// 2人の曜日 x timeSlot で両者の空き状態を返す
+availabilityRouter.get('/pair/:partnerUserId', async (req, res) => {
+  const parsedParams = overlapParamsSchema.safeParse(req.params);
+  if (!parsedParams.success) {
+    return res.status(400).json({ message: 'Invalid partnerUserId', issues: parsedParams.error.flatten() });
+  }
+
+  const currentUserId = req.user!.userId;
+  const partnerUserId = parsedParams.data.partnerUserId;
+
+  try {
+    const membership = await getApprovedMembership(currentUserId);
+    if (!membership) {
+      return res.status(403).json({ message: 'コミュニティ参加後にご利用ください' });
+    }
+
+    try {
+      await ensureSameCommunity(currentUserId, partnerUserId, membership.communityId);
+    } catch (error) {
+      return res.status(403).json({ message: (error as Error).message });
+    }
+
+    const slots = await getPairAvailabilitySlots(currentUserId, partnerUserId);
+    return res.json({ slots });
+  } catch (error) {
+    console.error('FETCH PAIR AVAILABILITY ERROR:', error);
+    return res.status(500).json({ message: 'Failed to fetch pair availability' });
   }
 });
 
