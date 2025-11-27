@@ -31,6 +31,8 @@ availabilityRouter.use((req, res, next) => {
   next();
 });
 
+// この API はあくまで「曜日 x 昼夜」の週次パターンを管理するもの。
+// フロントエンドが「今日から7日間」を表示する場合も、日付→Weekdayに変換してこの週次APIを呼び出す。
 availabilityRouter.get('/', async (req, res) => {
   try {
     const slots = await prisma.availabilitySlot.findMany({
