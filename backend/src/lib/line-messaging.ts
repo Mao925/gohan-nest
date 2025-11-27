@@ -27,8 +27,10 @@ export async function sendMatchNotification(
       type: "text",
       text: [
         "🎉 ごはんマッチ成立！ 🎉",
-        "",
         "だれかとごはんマッチが成立しました🍽️",
+        "",
+        "▼以下のリンクから確認！！",
+        "https://gohan-expo.vercel.app/availability",
       ].join("\n"),
     },
   ];
