@@ -15,7 +15,7 @@ const lineClient = new Client(config);
 
 export async function sendMatchNotification(
   lineUserId: string,
-  partnerName: string
+  partnerName: string // 受け取るが本文では使わない
 ) {
   console.log("[LINE] sendMatchNotification called", {
     lineUserId,
@@ -25,16 +25,28 @@ export async function sendMatchNotification(
   const messages: Message[] = [
     {
       type: "text",
-      text: `誰かとあなたがマッチしました！\n今回のお相手: ${partnerName}`,
+      text: [
+        "🎉 ごはんマッチ成立！ 🎉",
+        "",
+        "おつかれさまです、だれかとごはんマッチが成立しました🍽️",
+        "",
+        "📱 アプリ内の「マッチ一覧」から、今回マッチしたお相手をチェックしてみてください👀",
+        "",
+        "🗓️ トークルームで",
+        "・行けそうな日程",
+        "・エリアや最寄り駅",
+        "・行ってみたいお店候補",
+        "をゆるく相談してみましょう！",
+        "",
+        "いいごはん時間になりますように😋✨",
+      ].join("\n"),
     },
   ];
 
   try {
     const res = await lineClient.pushMessage(lineUserId, messages);
-    console.log("[LINE] pushMessage success", res); // res は基本 {} だが一応
+    console.log("[LINE] pushMessage success", res);
   } catch (err: any) {
-    // line-bot-sdk のエラー詳細は originalError.response に入ることが多い
-    // :contentReference[oaicite:0]{index=0}
     const status = err?.status || err?.originalError?.response?.status;
     const data = err?.originalError?.response?.data;
     console.error("Failed to send LINE match notification", {
