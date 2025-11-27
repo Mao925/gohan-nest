@@ -57,7 +57,8 @@ likesRouter.get('/next-candidate', async (req, res) => {
     candidate: {
       id: candidate.id,
       name: candidate.profile?.name || '',
-      favoriteMeals: candidate.profile?.favoriteMeals || []
+      favoriteMeals: candidate.profile?.favoriteMeals || [],
+      profileImageUrl: candidate.profile?.profileImageUrl ?? null
     }
   });
 });
@@ -98,6 +99,7 @@ likesRouter.post('/', async (req, res) => {
       let matchedAt: string | undefined;
       let partnerName = '';
       let partnerFavoriteMeals: string[] = [];
+      let partnerProfileImageUrl: string | null = null;
       if (parsed.data.answer === 'YES') {
         const reverse = await tx.like.findFirst({
           where: {
@@ -132,6 +134,7 @@ likesRouter.post('/', async (req, res) => {
           });
           partnerName = targetProfile?.name || '';
           partnerFavoriteMeals = targetProfile?.favoriteMeals || [];
+          partnerProfileImageUrl = targetProfile?.profileImageUrl ?? null;
         }
       }
 
@@ -161,7 +164,8 @@ likesRouter.post('/', async (req, res) => {
         matched: true,
         matchedAt: result.matchedAt,
         partnerName: result.partnerName,
-        partnerFavoriteMeals: result.partnerFavoriteMeals
+        partnerFavoriteMeals: result.partnerFavoriteMeals,
+        partnerProfileImageUrl
       });
     }
 

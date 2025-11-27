@@ -30,6 +30,7 @@ matchesRouter.get('/', async (req, res) => {
       id: match.id,
       partnerName: partner.profile?.name || '',
       partnerFavoriteMeals: partner.profile?.favoriteMeals || [],
+      partnerProfileImageUrl: partner.profile?.profileImageUrl ?? null,
       matchedAt: match.createdAt.toISOString()
     };
   });

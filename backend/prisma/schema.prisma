@@ -76,6 +76,7 @@ model Profile {
   user      User     @relation(fields: [userId], references: [id])
   userId    String   @unique
   name      String
+  profileImageUrl String?  @db.VarChar(500)
   favoriteMeals String[] @default([])
   isSeedMember Boolean @default(false)
   createdAt DateTime @default(now())

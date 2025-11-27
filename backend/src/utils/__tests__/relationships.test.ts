@@ -12,11 +12,11 @@ const matchSample = {
   createdAt: baseDate,
   user1: {
     id: 'me',
-    profile: { name: '自分', favoriteMeals: ['ラーメン'] }
+    profile: { name: '自分', favoriteMeals: ['ラーメン'], profileImageUrl: null }
   },
   user2: {
     id: 'partner-1',
-    profile: { name: 'Partner One', favoriteMeals: ['餃子'] }
+    profile: { name: 'Partner One', favoriteMeals: ['餃子'], profileImageUrl: 'https://example.com/p1.png' }
   }
 };
 
@@ -29,7 +29,7 @@ const awaitingLike = {
   createdAt: baseDate,
   toUser: {
     id: 'awaiting',
-    profile: { name: 'Awaiting User', favoriteMeals: [] }
+    profile: { name: 'Awaiting User', favoriteMeals: [], profileImageUrl: null }
   }
 };
 
@@ -42,7 +42,7 @@ const rejectedLike = {
   createdAt: baseDate,
   toUser: {
     id: 'rejected',
-    profile: { name: 'Rejected User', favoriteMeals: [] }
+    profile: { name: 'Rejected User', favoriteMeals: [], profileImageUrl: null }
   }
 };
 
