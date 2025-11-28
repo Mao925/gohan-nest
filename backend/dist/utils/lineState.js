@@ -1,3 +1,4 @@
+// backend/src/utils/lineState.ts
 import crypto from "node:crypto";
 import { SESSION_SECRET } from "../config.js";
 function base64UrlEncode(input) {
@@ -19,11 +20,13 @@ function timingSafeEquals(a, b) {
 function randomHex(bytes = 16) {
     return crypto.randomBytes(bytes).toString("hex");
 }
-export function generateSignedLineState() {
+// intent を state に含める
+export function generateSignedLineState(intent = "login") {
     const payload = {
         value: randomHex(16),
         nonce: randomHex(16),
         createdAt: Date.now(),
+        intent,
     };
     const payloadB64 = base64UrlEncode(JSON.stringify(payload));
     const signature = sign(payloadB64, SESSION_SECRET);
@@ -56,8 +59,16 @@ export function verifySignedLineState(token, ttlMs) {
         typeof payload.createdAt !== "number") {
         return { valid: false, reason: "invalid_payload_shape" };
     }
-    if (Date.now() - payload.createdAt > ttlMs) {
+    // intent が無い古いトークンは login 扱いにフォールバック
+    const intent = payload.intent === "register" ? "register" : "login";
+    const normalizedPayload = {
+        value: payload.value,
+        nonce: payload.nonce,
+        createdAt: payload.createdAt,
+        intent,
+    };
+    if (Date.now() - normalizedPayload.createdAt > ttlMs) {
         return { valid: false, reason: "expired" };
     }
-    return { valid: true, payload: payload };
+    return { valid: true, payload: normalizedPayload };
 }
