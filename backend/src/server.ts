@@ -1,7 +1,9 @@
+// src/server.ts
 import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import session from "express-session";
+import path from "node:path";
 import {
   PORT,
   DEFAULT_COMMUNITY_CODE,
@@ -83,6 +85,9 @@ app.use(
     },
   })
 );
+
+// 👇 ここでアップロードされた画像を配信
+app.use("/uploads", express.static(path.resolve("uploads")));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
