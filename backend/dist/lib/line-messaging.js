@@ -8,27 +8,33 @@ const config = {
     channelAccessToken,
 };
 const lineClient = new Client(config);
-export async function sendMatchNotification(lineUserId, partnerName) {
-    console.log("[LINE] sendMatchNotification called", {
+/**
+ * 「誰かがあなたにYESを押したとき」に送る通知
+ * partnerNameは互換性のために受け取るが、本文では使わない
+ */
+export async function sendMatchNotification(lineUserId, _partnerName) {
+    console.log("[LINE] sendMatchNotification (got-like) called", {
         lineUserId,
-        partnerName,
     });
     const messages = [
         {
             type: "text",
-            text: `誰かとあなたがマッチしました！\n今回のお相手: ${partnerName}`,
+            text: [
+                "誰かがあなたとご飯に行きたいようです🍚",
+                "",
+                "▼今すぐアプリをチェック👀",
+                "https://gohan-expo.vercel.app/login",
+            ].join("\n"),
         },
     ];
     try {
         const res = await lineClient.pushMessage(lineUserId, messages);
-        console.log("[LINE] pushMessage success", res); // res は基本 {} だが一応
+        console.log("[LINE] pushMessage success", res);
     }
     catch (err) {
-        // line-bot-sdk のエラー詳細は originalError.response に入ることが多い
-        // :contentReference[oaicite:0]{index=0}
         const status = err?.status || err?.originalError?.response?.status;
         const data = err?.originalError?.response?.data;
-        console.error("Failed to send LINE match notification", {
+        console.error("Failed to send LINE 'got-like' notification", {
             status,
             data,
             raw: err,

@@ -16,11 +16,7 @@ import {
   LINE_CHANNEL_SECRET,
   LINE_REDIRECT_URI
 } from '../config.js';
-import {
-  generateSignedLineState,
-  verifySignedLineState,
-  type LineLoginMode,
-} from '../utils/lineState.js';
+import { generateSignedLineState, verifySignedLineState } from '../utils/lineState.js';
 
 type LineTokenResponse = {
   access_token: string;
@@ -198,20 +194,18 @@ authRouter.post('/login', async (req, res) => {
   return res.json({ token, user: payload });
 });
 
+/**
+ * LINE ログイン（既存ユーザーのみ）
+ */
 authRouter.get('/line/login', (req, res) => {
   if (!ensureLineEnv()) {
     return res.status(500).json({ message: 'LINE login is not configured' });
   }
 
-  // ?mode=login | register をクエリから読む（デフォルトは login）
-  const modeParam = typeof req.query.mode === 'string' ? req.query.mode : undefined;
-  const mode: LineLoginMode = modeParam === 'register' ? 'register' : 'login';
+  const { token: stateToken, payload: statePayload } = generateSignedLineState('login');
 
-  const { token: stateToken, payload: statePayload } = generateSignedLineState(mode);
-
-  console.log('LINE login: generated signed state', {
+  console.log('LINE login: generated signed state (login)', {
     payload: statePayload,
-    mode,
     ua: req.headers['user-agent'],
     cookie: req.headers.cookie,
   });
@@ -223,7 +217,37 @@ authRouter.get('/line/login', (req, res) => {
     state: stateToken,
     scope: 'openid profile',
     nonce: statePayload.nonce,
-    // 友だち追加ダイアログ表示用（公式アカ連携済み前提）
+    bot_prompt: 'normal', // or 'aggressive'
+  });
+
+  const authorizationUrl = `https://access.line.me/oauth2/v2.1/authorize?${searchParams.toString()}`;
+  res.setHeader('Cache-Control', 'no-store');
+  return res.redirect(authorizationUrl);
+});
+
+/**
+ * LINE 新規登録（未登録ユーザーのみ作成を許可）
+ */
+authRouter.get('/line/register', (req, res) => {
+  if (!ensureLineEnv()) {
+    return res.status(500).json({ message: 'LINE login is not configured' });
+  }
+
+  const { token: stateToken, payload: statePayload } = generateSignedLineState('register');
+
+  console.log('LINE login: generated signed state (register)', {
+    payload: statePayload,
+    ua: req.headers['user-agent'],
+    cookie: req.headers.cookie,
+  });
+
+  const searchParams = new URLSearchParams({
+    response_type: 'code',
+    client_id: LINE_CHANNEL_ID!,
+    redirect_uri: LINE_REDIRECT_URI!,
+    state: stateToken,
+    scope: 'openid profile',
+    nonce: statePayload.nonce,
     bot_prompt: 'normal', // or 'aggressive'
   });
 
@@ -259,7 +283,7 @@ authRouter.get('/line/callback', async (req, res) => {
     return res.status(400).json({ message: 'Invalid or expired state' });
   }
 
-  const mode: LineLoginMode = verification.payload.mode ?? 'login';
+  const intent = verification.payload.intent; // "login" | "register"
 
   try {
     const tokenResponse = await fetch('https://api.line.me/oauth2/v2.1/token', {
@@ -308,22 +332,26 @@ authRouter.get('/line/callback', async (req, res) => {
     const placeholderEmail = `line_${profileJson.userId}@line.local`;
     let isNewUser = false;
 
-    if (!user) {
-      if (mode === 'login') {
-        // ログインフローなのにユーザーが存在しない → 新規作成せずログイン画面へ戻す
-        const base = FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
-        let url: URL;
-        try {
-          url = new URL(base);
-        } catch {
-          url = new URL(`https://${base}`);
-        }
-        url.pathname = '/login';
-        url.searchParams.set('lineError', 'NOT_REGISTERED');
-        return res.redirect(url.toString());
+    // login intent で user が存在しない場合 → 新規作成せずエラーでフロントに返す
+    if (!user && intent === 'login') {
+      console.log('[LINE CALLBACK] login intent but no user found, redirecting with error');
+      const base = FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
+      let url: URL;
+      try {
+        url = new URL(base);
+      } catch {
+        url = new URL(`https://${base}`);
       }
+      url.pathname = '/auth/line/callback';
+      url.searchParams.set('error', 'not_registered');
+      return res.redirect(url.toString());
+    }
 
-      // mode === 'register' のときだけ新規作成
+    // 上記以外:
+    // - intent === 'register' で user がまだ無い → 新規作成 (isNewUser=true)
+    // - intent === 'register' で user 既にあり → 更新 (isNewUser=false)
+    // - intent === 'login' で user 既にあり → 更新 (isNewUser=false)
+    if (!user) {
       const hashedPassword = await bcrypt.hash(generateRandomString(24), 10);
       isNewUser = true;
       user = await prisma.$transaction(async (tx) => {
@@ -349,7 +377,6 @@ authRouter.get('/line/callback', async (req, res) => {
         return createdUser;
       });
     } else {
-      // 既存ユーザーは displayName / pictureUrl だけ更新
       user = await prisma.user.update({
         where: { id: user.id },
         data: {

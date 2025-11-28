@@ -2,13 +2,13 @@
 import crypto from "node:crypto";
 import { SESSION_SECRET } from "../config.js";
 
-export type LineLoginMode = "login" | "register";
+export type LineStateIntent = "login" | "register";
 
 export type LineStatePayload = {
   value: string;
   nonce: string;
   createdAt: number;
-  mode: LineLoginMode;
+  intent: LineStateIntent;
 };
 
 export type LineStateVerification =
@@ -24,10 +24,7 @@ function base64UrlDecode(input: string) {
 }
 
 function sign(payload: string, secret: string) {
-  return crypto
-    .createHmac("sha256", secret)
-    .update(payload)
-    .digest("base64url");
+  return crypto.createHmac("sha256", secret).update(payload).digest("base64url");
 }
 
 function timingSafeEquals(a: string, b: string) {
@@ -41,21 +38,16 @@ function randomHex(bytes = 16) {
   return crypto.randomBytes(bytes).toString("hex");
 }
 
-/**
- * mode:
- *  - "login"    : ログインフロー（既存ユーザーのみ許可）
- *  - "register" : 新規登録フロー（未登録ならユーザー作成）
- */
-export function generateSignedLineState(mode: LineLoginMode = "login") {
+// intent を state に含める
+export function generateSignedLineState(intent: LineStateIntent = "login") {
   const payload: LineStatePayload = {
     value: randomHex(16),
     nonce: randomHex(16),
     createdAt: Date.now(),
-    mode,
+    intent,
   };
 
-  const payloadJson = JSON.stringify(payload);
-  const payloadB64 = base64UrlEncode(payloadJson);
+  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
   const signature = sign(payloadB64, SESSION_SECRET);
 
   return {
@@ -86,31 +78,30 @@ export function verifySignedLineState(
     return { valid: false, reason: "invalid_payload" };
   }
 
-  const raw = payloadJson as any;
-
+  const payload = payloadJson as Partial<LineStatePayload>;
   if (
-    !raw ||
-    typeof raw.value !== "string" ||
-    typeof raw.nonce !== "string" ||
-    typeof raw.createdAt !== "number"
+    !payload ||
+    typeof payload.value !== "string" ||
+    typeof payload.nonce !== "string" ||
+    typeof payload.createdAt !== "number"
   ) {
     return { valid: false, reason: "invalid_payload_shape" };
   }
 
-  // mode が入っていない or 想定外の値でも、とりあえず "login" とみなして動くようにする
-  const mode: LineLoginMode =
-    raw.mode === "register" ? "register" : "login";
+  // intent が無い古いトークンは login 扱いにフォールバック
+  const intent: LineStateIntent =
+    payload.intent === "register" ? "register" : "login";
 
-  const payload: LineStatePayload = {
-    value: raw.value,
-    nonce: raw.nonce,
-    createdAt: raw.createdAt,
-    mode,
+  const normalizedPayload: LineStatePayload = {
+    value: payload.value,
+    nonce: payload.nonce,
+    createdAt: payload.createdAt,
+    intent,
   };
 
-  if (Date.now() - payload.createdAt > ttlMs) {
+  if (Date.now() - normalizedPayload.createdAt > ttlMs) {
     return { valid: false, reason: "expired" };
   }
 
-  return { valid: true, payload };
+  return { valid: true, payload: normalizedPayload };
 }

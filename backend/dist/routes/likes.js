@@ -130,38 +130,26 @@ likesRouter.post("/", async (req, res) => {
             }
             return { matched, matchedAt, partnerName, partnerFavoriteMeals };
         });
+        // ✅ NEW: 自分以外の誰かに YES したら、その「YESされた側」に通知を飛ばす
+        if (parsed.data.answer === "YES" &&
+            req.user.userId !== parsed.data.targetUserId) {
+            const likedUser = await prisma.user.findUnique({
+                where: { id: parsed.data.targetUserId },
+                select: { lineUserId: true },
+            });
+            console.log("[LIKE POST] likedUser for LINE", { likedUser });
+            if (likedUser?.lineUserId) {
+                console.log("[LINE POST] sending 'got-liked' notification to liked user");
+                await sendMatchNotification(likedUser.lineUserId);
+            }
+            else {
+                console.warn("[LINE POST] skip liked-user notification: missing lineUserId", {
+                    likedUserId: parsed.data.targetUserId,
+                });
+            }
+        }
+        // マッチ情報自体はフロントで使っている可能性があるのでレスポンスは維持
         if (result.matched) {
-            const [self, partner] = await Promise.all([
-                prisma.user.findUnique({
-                    where: { id: req.user.userId },
-                    select: { lineUserId: true, profile: { select: { name: true } } },
-                }),
-                prisma.user.findUnique({
-                    where: { id: parsed.data.targetUserId },
-                    select: { lineUserId: true, profile: { select: { name: true } } },
-                }),
-            ]);
-            console.log("[MATCH POST] users for LINE", { self, partner });
-            if (self?.lineUserId && partner?.profile?.name) {
-                console.log("[LINE POST] sending to self");
-                await sendMatchNotification(self.lineUserId, partner.profile.name);
-            }
-            else {
-                console.warn("[LINE POST] skip self notification: missing lineUserId or partner name", {
-                    selfLineUserId: self?.lineUserId,
-                    partnerName: partner?.profile?.name,
-                });
-            }
-            if (partner?.lineUserId && self?.profile?.name) {
-                console.log("[LINE POST] sending to partner");
-                await sendMatchNotification(partner.lineUserId, self.profile.name);
-            }
-            else {
-                console.warn("[LINE POST] skip partner notification: missing lineUserId or self name", {
-                    partnerLineUserId: partner?.lineUserId,
-                    selfName: self?.profile?.name,
-                });
-            }
             return res.json({
                 matched: true,
                 matchedAt: result.matchedAt,
@@ -311,36 +299,21 @@ likesRouter.patch("/:targetUserId", async (req, res) => {
         partnerAnswer: formatPartnerAnswer(partnerLike?.answer),
         matchRecord: result.matchRecord ?? undefined,
     });
-    if (payload.relationship.matched) {
-        const [self, partner] = await Promise.all([
-            prisma.user.findUnique({
-                where: { id: req.user.userId },
-                select: { lineUserId: true, profile: { select: { name: true } } },
-            }),
-            prisma.user.findUnique({
-                where: { id: targetUserId },
-                select: { lineUserId: true, profile: { select: { name: true } } },
-            }),
-        ]);
-        console.log("[MATCH PATCH] users for LINE", { self, partner });
-        if (self?.lineUserId && partner?.profile?.name) {
-            console.log("[LINE PATCH] sending to self");
-            await sendMatchNotification(self.lineUserId, partner.profile.name);
+    // ✅ NEW: NO → YES などで YES に変わったとき、
+    // 自分 ≠ targetUserId なら YES された側に通知
+    if (parsed.data.answer === "YES" && req.user.userId !== targetUserId) {
+        const likedUser = await prisma.user.findUnique({
+            where: { id: targetUserId },
+            select: { lineUserId: true },
+        });
+        console.log("[LIKE PATCH] likedUser for LINE", { likedUser });
+        if (likedUser?.lineUserId) {
+            console.log("[LINE PATCH] sending 'got-liked' notification to liked user");
+            await sendMatchNotification(likedUser.lineUserId);
         }
         else {
-            console.warn("[LINE PATCH] skip self notification: missing lineUserId or partner name", {
-                selfLineUserId: self?.lineUserId,
-                partnerName: partner?.profile?.name,
-            });
-        }
-        if (partner?.lineUserId && self?.profile?.name) {
-            console.log("[LINE PATCH] sending to partner");
-            await sendMatchNotification(partner.lineUserId, self.profile.name);
-        }
-        else {
-            console.warn("[LINE PATCH] skip partner notification: missing lineUserId or self name", {
-                partnerLineUserId: partner?.lineUserId,
-                selfName: self?.profile?.name,
+            console.warn("[LINE PATCH] skip liked-user notification: missing lineUserId", {
+                likedUserId: targetUserId,
             });
         }
     }
