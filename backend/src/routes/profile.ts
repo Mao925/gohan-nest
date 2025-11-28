@@ -1,64 +1,61 @@
-// backend/src/routes/profile.ts
+// src/routes/profile.ts
 import { Router } from 'express';
 import { z } from 'zod';
-import fs from 'node:fs';
-import path from 'node:path';
 import multer from 'multer';
+import path from 'node:path';
+import fs from 'node:fs';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 
 const updateSchema = z.object({
   name: z.string().min(1),
-  favoriteMeals: z.array(z.string().trim().min(1).max(100)).max(3)
+  favoriteMeals: z.array(z.string().trim().min(1).max(100)).max(3),
 });
 
 export const profileRouter = Router();
 
-// ------- 画像アップロード用の設定 -------
-
-// 保存先ディレクトリを作成
-const UPLOAD_ROOT = path.resolve('uploads/profile');
-fs.mkdirSync(UPLOAD_ROOT, { recursive: true });
-
-const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, UPLOAD_ROOT),
-    filename: (req: any, file, cb) => {
-      const ext = path.extname(file.originalname) || '.jpg';
-      const userId = req.user?.userId ?? 'anonymous';
-      const filename = `${userId}-${Date.now()}${ext}`;
-      cb(null, filename);
-    }
-  }),
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB
-  },
-  fileFilter: (_req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) {
-      cb(new Error('画像ファイルのみアップロードできます'));
-    } else {
-      cb(null, true);
-    }
-  }
-});
-
-// リクエストから「このバックエンドのオリジン」を作って画像URLを返す
-function buildProfileImageUrl(req: any, filename: string) {
-  const proto =
-    (req.headers['x-forwarded-proto'] as string | undefined) || req.protocol || 'https';
-  const host = req.headers['x-forwarded-host'] || req.get('host');
-  const origin = `${proto}://${host}`;
-  return `${origin}/uploads/profile/${filename}`;
-}
-
-// ------- 認証必須 -------
-
 profileRouter.use(authMiddleware);
 
-// GET /api/profile
+// ========= 画像アップロード用の設定 =========
+
+// アップロード先ディレクトリ
+const uploadDir = path.resolve('uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
+
+// どこに・どんなファイル名で保存するか
+const storage = multer.diskStorage({
+  destination: (_req: any, _file: any, cb: any) => {
+    cb(null, uploadDir);
+  },
+  filename: (_req: any, file: any, cb: any) => {
+    const ext = path.extname(file.originalname || '');
+    const base = path.basename(file.originalname || 'image', ext);
+    const safeBase = (base || 'image').replace(/[^a-zA-Z0-9_-]/g, '');
+    cb(null, `${Date.now()}-${safeBase}${ext}`);
+  },
+});
+
+// 画像ファイルのみ許可
+const fileFilter = (_req: any, file: any, cb: any) => {
+  if (!file.mimetype || !file.mimetype.startsWith('image/')) {
+    return cb(new Error('画像ファイルのみアップロードできます'));
+  }
+  cb(null, true);
+};
+
+const upload = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+});
+
+// ========= プロフィール取得 =========
+
 profileRouter.get('/', async (req, res) => {
   const profile = await prisma.profile.findUnique({
-    where: { userId: req.user!.userId }
+    where: { userId: req.user!.userId },
   });
 
   if (!profile) {
@@ -69,69 +66,71 @@ profileRouter.get('/', async (req, res) => {
     id: profile.id,
     name: profile.name,
     favoriteMeals: profile.favoriteMeals ?? [],
-    profileImageUrl: profile.profileImageUrl ?? null
+    profileImageUrl: profile.profileImageUrl ?? null,
   });
 });
 
-// PUT /api/profile
+// ========= プロフィール更新（名前 & 好きなご飯） =========
+
 profileRouter.put('/', async (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid input', issues: parsed.error.flatten() });
+    return res
+      .status(400)
+      .json({ message: 'Invalid input', issues: parsed.error.flatten() });
   }
 
   const profile = await prisma.profile.upsert({
     where: { userId: req.user!.userId },
-    update: parsed.data,
+    update: {
+      name: parsed.data.name,
+      favoriteMeals: parsed.data.favoriteMeals,
+    },
     create: {
       userId: req.user!.userId,
       name: parsed.data.name,
-      favoriteMeals: parsed.data.favoriteMeals
-    }
+      favoriteMeals: parsed.data.favoriteMeals,
+    },
   });
 
   res.json({
     id: profile.id,
     name: profile.name,
     favoriteMeals: profile.favoriteMeals ?? [],
-    profileImageUrl: profile.profileImageUrl ?? null
+    profileImageUrl: profile.profileImageUrl ?? null,
   });
 });
 
-// POST /api/profile/image
-profileRouter.post(
-  '/image',
-  upload.single('image'),
-  async (req: any, res) => {
-    try {
-      const file = req.file as Express.Multer.File | undefined;
-      if (!file) {
-        return res.status(400).json({ message: '画像ファイルが選択されていません' });
-      }
+// ========= プロフィール画像アップロード =========
 
-      const imageUrl = buildProfileImageUrl(req, file.filename);
+profileRouter.post('/image', upload.single('image'), async (req, res) => {
+  // ★ ここが今回のエラー箇所：型だけ any にキャスト
+  const file = (req as any).file as any;
 
-      // プロフィールに URL を保存
-      const profile = await prisma.profile.upsert({
-        where: { userId: req.user!.userId },
-        update: { profileImageUrl: imageUrl },
-        create: {
-          userId: req.user!.userId,
-          name: '未設定',
-          favoriteMeals: [],
-          profileImageUrl: imageUrl
-        }
-      });
-
-      return res.json({
-        id: profile.id,
-        name: profile.name,
-        favoriteMeals: profile.favoriteMeals ?? [],
-        profileImageUrl: profile.profileImageUrl ?? null
-      });
-    } catch (error) {
-      console.error('PROFILE IMAGE UPLOAD ERROR', error);
-      return res.status(500).json({ message: '画像のアップロードに失敗しました' });
-    }
+  if (!file) {
+    return res.status(400).json({ message: '画像ファイルが見つかりません' });
   }
-);
+
+  const filePath: string = file.path;
+  const filename = path.basename(filePath);
+  const imageUrl = `/uploads/${filename}`;
+
+  const profile = await prisma.profile.upsert({
+    where: { userId: req.user!.userId },
+    update: { profileImageUrl: imageUrl },
+    create: {
+      userId: req.user!.userId,
+      name: '未設定',
+      favoriteMeals: [],
+      profileImageUrl: imageUrl,
+    },
+  });
+
+  res.json({
+    id: profile.id,
+    name: profile.name,
+    favoriteMeals: profile.favoriteMeals ?? [],
+    profileImageUrl: profile.profileImageUrl ?? null,
+  });
+});
+

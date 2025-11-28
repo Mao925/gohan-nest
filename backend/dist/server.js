@@ -1,7 +1,9 @@
+// src/server.ts
 import express from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import session from "express-session";
+import path from "node:path";
 import { PORT, DEFAULT_COMMUNITY_CODE, DEFAULT_COMMUNITY_NAME, CLIENT_ORIGIN, SEED_ADMIN_EMAIL, SEED_ADMIN_PASSWORD, ENABLE_SEED_ADMIN, DEV_RESET_LIKE_ENDPOINT, SESSION_SECRET, NODE_ENV, IS_PRODUCTION, } from "./config.js";
 import { prisma } from "./lib/prisma.js";
 import { authRouter } from "./routes/auth.js";
@@ -56,6 +58,8 @@ app.use(session({
         sameSite: "lax",
     },
 }));
+// 👇 ここでアップロードされた画像を配信
+app.use("/uploads", express.static(path.resolve("uploads")));
 app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/community", communityRouter);
