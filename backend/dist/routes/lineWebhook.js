@@ -1,0 +1,100 @@
+import crypto from 'node:crypto';
+import { Router } from 'express';
+import { AvailabilityStatus, TimeSlot } from '@prisma/client';
+import { prisma } from '../lib/prisma.js';
+import { LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET } from '../config.js';
+import { getTodayWeekdayInJst } from '../utils/date.js';
+const lineWebhookRouter = Router();
+function verifySignature(signature, rawBody) {
+    if (!signature || !LINE_CHANNEL_SECRET || !rawBody) {
+        return false;
+    }
+    const hash = crypto
+        .createHmac('sha256', LINE_CHANNEL_SECRET)
+        .update(rawBody)
+        .digest('base64');
+    return hash === signature;
+}
+async function replyToLine(replyToken, text) {
+    if (!LINE_CHANNEL_ACCESS_TOKEN) {
+        console.error('LINE_CHANNEL_ACCESS_TOKEN is not configured for replies');
+        return;
+    }
+    try {
+        const response = await fetch('https://api.line.me/v2/bot/message/reply', {
+            method: 'POST',
+            headers: {
+                Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                replyToken,
+                messages: [{ type: 'text', text }]
+            })
+        });
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error('LINE reply failed', {
+                status: response.status,
+                body: errorBody
+            });
+        }
+    }
+    catch (error) {
+        console.error('LINE reply error', error);
+    }
+}
+lineWebhookRouter.post('/', async (req, res) => {
+    const rawBody = req.rawBody;
+    const signature = req.header('x-line-signature');
+    if (!verifySignature(signature, rawBody)) {
+        console.warn('Invalid LINE signature');
+        return res.sendStatus(403);
+    }
+    const events = Array.isArray(req.body?.events) ? req.body.events : [];
+    for (const event of events) {
+        if (event.type !== 'postback') {
+            continue;
+        }
+        const postbackData = event.postback?.data ?? '';
+        const [prefix, timeSlotRaw, statusRaw] = postbackData.split(':');
+        if (prefix !== 'availability') {
+            continue;
+        }
+        if (!['DAY', 'NIGHT'].includes(timeSlotRaw) ||
+            !['AVAILABLE', 'UNAVAILABLE'].includes(statusRaw)) {
+            continue;
+        }
+        const userLineId = event.source?.userId;
+        const replyToken = event.replyToken;
+        if (!userLineId || !replyToken) {
+            continue;
+        }
+        const user = await prisma.user.findUnique({
+            where: { lineUserId: userLineId },
+            select: { id: true }
+        });
+        if (!user) {
+            continue;
+        }
+        const weekday = getTodayWeekdayInJst();
+        const timeSlot = timeSlotRaw;
+        const status = statusRaw;
+        try {
+            await prisma.availabilitySlot.upsert({
+                where: { userId_weekday_timeSlot: { userId: user.id, weekday, timeSlot } },
+                create: { userId: user.id, weekday, timeSlot, status },
+                update: { status }
+            });
+            const slotLabel = timeSlot === TimeSlot.DAY ? '昼ごはん' : '夜ごはん';
+            const statusLabel = status === AvailabilityStatus.AVAILABLE ? '空いている' : '空いていない';
+            await replyToLine(replyToken, `今日の${slotLabel}: ${statusLabel} を登録しました`);
+        }
+        catch (error) {
+            console.error('Failed to upsert availability from LINE', { error });
+            await replyToLine(replyToken, '今日の予定を記録できませんでした。あとでもう一度試してください');
+        }
+    }
+    return res.sendStatus(200);
+});
+export { lineWebhookRouter };

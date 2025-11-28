@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "dev": "NODE_OPTIONS='--enable-source-maps' node --loader ts-node/esm src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "node --test --loader ts-node/esm src/utils/__tests__/relationships.test.ts",

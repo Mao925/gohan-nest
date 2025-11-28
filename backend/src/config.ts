@@ -56,6 +56,7 @@ export const CLIENT_ORIGIN = process.env.NEXT_PUBLIC_API_BASE_URL;
 export const FRONTEND_URL = process.env.FRONTEND_URL || CLIENT_ORIGIN;
 export const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID;
 export const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
+export const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
 export const LINE_REDIRECT_URI = process.env.LINE_REDIRECT_URI;
 export const AUTO_APPROVE_MEMBERS = process.env.AUTO_APPROVE_MEMBERS === "true";
 export const SEED_ADMIN_EMAIL =
@@ -76,10 +77,10 @@ export const SESSION_SECRET = sessionSecret!;
 const missingLineEnv = [
   { key: "LINE_CHANNEL_ID", value: LINE_CHANNEL_ID },
   { key: "LINE_CHANNEL_SECRET", value: LINE_CHANNEL_SECRET },
+  { key: "LINE_CHANNEL_ACCESS_TOKEN", value: LINE_CHANNEL_ACCESS_TOKEN },
   { key: "LINE_REDIRECT_URI", value: LINE_REDIRECT_URI },
 ]
-  .filter((item) => !item.value)
-  .map((item) => item.key);
+  .filter((item) => !item.value);
 
 if (!DATABASE_URL) {
   console.warn("DATABASE_URL is not set. Prisma will fail to connect.");
@@ -87,6 +88,8 @@ if (!DATABASE_URL) {
 
 if (missingLineEnv.length > 0) {
   console.error(
-    `LINE OAuth environment variables are missing: ${missingLineEnv.join(", ")}`
+    `LINE environment variables are missing: ${missingLineEnv
+      .map((item) => item.key)
+      .join(", ")}`
   );
 }
