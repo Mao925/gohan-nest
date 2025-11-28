@@ -13,23 +13,25 @@ const config: ClientConfig = {
 
 const lineClient = new Client(config);
 
+/**
+ * 「誰かがあなたにYESを押したとき」に送る通知
+ * partnerNameは互換性のために受け取るが、本文では使わない
+ */
 export async function sendMatchNotification(
   lineUserId: string,
-  partnerName: string // 受け取るが本文では使わない
+  _partnerName?: string
 ) {
-  console.log("[LINE] sendMatchNotification called", {
+  console.log("[LINE] sendMatchNotification (got-like) called", {
     lineUserId,
-    partnerName,
   });
 
   const messages: Message[] = [
     {
       type: "text",
       text: [
-        "🎉 ごはんマッチ成立！ 🎉",
-        "だれかとごはんマッチが成立しました🍽️",
+        "誰かがあなたとご飯に行きたいようです🍚",
         "",
-        "▼以下のリンクから確認！！",
+        "▼今すぐアプリをチェック👀",
         "https://gohan-expo.vercel.app/login",
       ].join("\n"),
     },
@@ -41,7 +43,7 @@ export async function sendMatchNotification(
   } catch (err: any) {
     const status = err?.status || err?.originalError?.response?.status;
     const data = err?.originalError?.response?.data;
-    console.error("Failed to send LINE match notification", {
+    console.error("Failed to send LINE 'got-like' notification", {
       status,
       data,
       raw: err,
