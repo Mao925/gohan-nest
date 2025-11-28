@@ -162,7 +162,7 @@ authRouter.get('/line/login', (req, res) => {
         state: stateToken,
         scope: 'openid profile',
         nonce: statePayload.nonce,
-        bot_prompt: 'normal', // or 'aggressive'
+        bot_prompt: 'aggressive', // or 'aggressive'
     });
     const authorizationUrl = `https://access.line.me/oauth2/v2.1/authorize?${searchParams.toString()}`;
     res.setHeader('Cache-Control', 'no-store');
@@ -188,7 +188,7 @@ authRouter.get('/line/register', (req, res) => {
         state: stateToken,
         scope: 'openid profile',
         nonce: statePayload.nonce,
-        bot_prompt: 'normal', // or 'aggressive'
+        bot_prompt: 'aggressive', // or 'aggressive'
     });
     const authorizationUrl = `https://access.line.me/oauth2/v2.1/authorize?${searchParams.toString()}`;
     res.setHeader('Cache-Control', 'no-store');
