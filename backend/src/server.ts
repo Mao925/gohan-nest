@@ -77,7 +77,7 @@ app.options("*", cors());
 app.use(
   express.json({
     verify: (req, _res, buf) => {
-      (req as RawBodyRequest).rawBody = buf;
+      (req as RawBodyRequest).rawBody = Buffer.from(buf);
     },
   })
 );
