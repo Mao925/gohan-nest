@@ -51,7 +51,7 @@ app.options("*", cors());
 // 👇 json パーサはこれ 1 個だけにして rawBody を保存
 app.use(express.json({
     verify: (req, _res, buf) => {
-        req.rawBody = buf;
+        req.rawBody = Buffer.from(buf);
     },
 }));
 app.use(session({
