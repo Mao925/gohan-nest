@@ -52,6 +52,7 @@ likesRouter.get("/next-candidate", async (req, res) => {
             id: candidate.id,
             name: candidate.profile?.name || "",
             favoriteMeals: candidate.profile?.favoriteMeals || [],
+            profileImageUrl: candidate.profile?.profileImageUrl ?? null
         },
     });
 });

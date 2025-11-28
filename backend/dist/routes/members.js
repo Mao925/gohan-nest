@@ -18,6 +18,7 @@ membersRouter.get('/', async (req, res) => {
         id: m.user.id,
         name: m.user.profile?.name || '',
         favoriteMeals: m.user.profile?.favoriteMeals || [],
+        profileImageUrl: m.user.profile?.profileImageUrl ?? null,
         isSelf: m.user.id === req.user.userId
     })));
 });
