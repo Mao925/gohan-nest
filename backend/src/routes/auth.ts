@@ -1,3 +1,4 @@
+// backend/src/routes/auth.ts
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
@@ -15,7 +16,11 @@ import {
   LINE_CHANNEL_SECRET,
   LINE_REDIRECT_URI
 } from '../config.js';
-import { generateSignedLineState, verifySignedLineState } from '../utils/lineState.js';
+import {
+  generateSignedLineState,
+  verifySignedLineState,
+  type LineLoginMode,
+} from '../utils/lineState.js';
 
 type LineTokenResponse = {
   access_token: string;
@@ -198,10 +203,15 @@ authRouter.get('/line/login', (req, res) => {
     return res.status(500).json({ message: 'LINE login is not configured' });
   }
 
-  const { token: stateToken, payload: statePayload } = generateSignedLineState();
+  // ?mode=login | register をクエリから読む（デフォルトは login）
+  const modeParam = typeof req.query.mode === 'string' ? req.query.mode : undefined;
+  const mode: LineLoginMode = modeParam === 'register' ? 'register' : 'login';
+
+  const { token: stateToken, payload: statePayload } = generateSignedLineState(mode);
 
   console.log('LINE login: generated signed state', {
     payload: statePayload,
+    mode,
     ua: req.headers['user-agent'],
     cookie: req.headers.cookie,
   });
@@ -213,7 +223,7 @@ authRouter.get('/line/login', (req, res) => {
     state: stateToken,
     scope: 'openid profile',
     nonce: statePayload.nonce,
-    // 🔽 友だち追加ダイアログ表示用（公式アカ連携済み前提） 🔽
+    // 友だち追加ダイアログ表示用（公式アカ連携済み前提）
     bot_prompt: 'normal', // or 'aggressive'
   });
 
@@ -248,6 +258,8 @@ authRouter.get('/line/callback', async (req, res) => {
   if (!verification.valid) {
     return res.status(400).json({ message: 'Invalid or expired state' });
   }
+
+  const mode: LineLoginMode = verification.payload.mode ?? 'login';
 
   try {
     const tokenResponse = await fetch('https://api.line.me/oauth2/v2.1/token', {
@@ -297,6 +309,21 @@ authRouter.get('/line/callback', async (req, res) => {
     let isNewUser = false;
 
     if (!user) {
+      if (mode === 'login') {
+        // ログインフローなのにユーザーが存在しない → 新規作成せずログイン画面へ戻す
+        const base = FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
+        let url: URL;
+        try {
+          url = new URL(base);
+        } catch {
+          url = new URL(`https://${base}`);
+        }
+        url.pathname = '/login';
+        url.searchParams.set('lineError', 'NOT_REGISTERED');
+        return res.redirect(url.toString());
+      }
+
+      // mode === 'register' のときだけ新規作成
       const hashedPassword = await bcrypt.hash(generateRandomString(24), 10);
       isNewUser = true;
       user = await prisma.$transaction(async (tx) => {
@@ -322,6 +349,7 @@ authRouter.get('/line/callback', async (req, res) => {
         return createdUser;
       });
     } else {
+      // 既存ユーザーは displayName / pictureUrl だけ更新
       user = await prisma.user.update({
         where: { id: user.id },
         data: {
