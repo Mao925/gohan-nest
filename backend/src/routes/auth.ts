@@ -44,8 +44,7 @@ function ensureLineEnv() {
 }
 
 function buildFrontendRedirect(token: string, isNewUser: boolean) {
-  const base =
-    FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
+  const base = FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
   let url: URL;
   try {
     url = new URL(base);
@@ -54,7 +53,7 @@ function buildFrontendRedirect(token: string, isNewUser: boolean) {
   }
   url.pathname = '/auth/line/callback';
   url.searchParams.set('token', token);
-  url.searchParams.set('newUser', String(isNewUser));
+  url.searchParams.set('newUser', String(isNewUser)); // "true" or "false"
   return url.toString();
 }
 
@@ -213,7 +212,9 @@ authRouter.get('/line/login', (req, res) => {
     redirect_uri: LINE_REDIRECT_URI!,
     state: stateToken,
     scope: 'openid profile',
-    nonce: statePayload.nonce
+    nonce: statePayload.nonce,
+    // 🔽 友だち追加ダイアログ表示用（公式アカ連携済み前提） 🔽
+    bot_prompt: 'normal', // or 'aggressive'
   });
 
   const authorizationUrl = `https://access.line.me/oauth2/v2.1/authorize?${searchParams.toString()}`;
