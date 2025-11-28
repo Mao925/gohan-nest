@@ -54,7 +54,8 @@ function buildParticipantPayload(participant) {
         isHost: participant.isHost,
         status: participant.status,
         name: participant.user.profile?.name || '',
-        favoriteMeals: participant.user.profile?.favoriteMeals || []
+        favoriteMeals: participant.user.profile?.favoriteMeals || [],
+        profileImageUrl: participant.user.profile?.profileImageUrl ?? null
     };
 }
 function getMyStatus(participants, userId) {
@@ -82,7 +83,8 @@ function buildGroupMealPayload(groupMeal, currentUserId, opts = {}) {
         status: groupMeal.status,
         host: {
             userId: groupMeal.hostUserId,
-            name: groupMeal.host.profile?.name || ''
+            name: groupMeal.host.profile?.name || '',
+            profileImageUrl: groupMeal.host.profile?.profileImageUrl ?? null
         },
         joinedCount,
         remainingSlots: Math.max(groupMeal.capacity - joinedCount, 0),
@@ -314,6 +316,7 @@ groupMealsRouter.get('/:id/candidates', async (req, res) => {
             userId: u.id,
             name: u.profile?.name ?? '未設定',
             favoriteMeals: u.profile?.favoriteMeals || [],
+            profileImageUrl: u.profile?.profileImageUrl ?? null,
             isAvailableForSlot: availableUserIds.has(u.id)
         }))
             .sort((a, b) => Number(b.isAvailableForSlot) - Number(a.isAvailableForSlot));

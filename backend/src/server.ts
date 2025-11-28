@@ -1,5 +1,5 @@
 // src/server.ts
-import express from "express";
+import express, { type Request } from "express";
 import cors from "cors";
 import bcrypt from "bcryptjs";
 import session from "express-session";
@@ -29,17 +29,19 @@ import { matchesRouter } from "./routes/matches.js";
 import devRouter from "./routes/dev.js";
 import { availabilityRouter } from "./routes/availability.js";
 import { groupMealsRouter } from "./routes/groupMeals.js";
+import { lineRouter } from "./routes/line.js";
+import { lineWebhookRouter } from "./routes/lineWebhook.js";
 
 console.log(`Starting API server in ${NODE_ENV} mode`);
+
+type RawBodyRequest = Request & { rawBody?: Buffer };
 
 const app = express();
 app.set("trust proxy", 1);
 
 function uniqueOrigins(origins: Array<string | undefined>) {
   return Array.from(
-    new Set(
-      origins.filter((origin): origin is string => Boolean(origin))
-    )
+    new Set(origins.filter((origin): origin is string => Boolean(origin)))
   );
 }
 
@@ -71,7 +73,15 @@ app.use(
 // OPTIONS を確実に許可
 app.options("*", cors());
 
-app.use(express.json());
+// 👇 json パーサはこれ 1 個だけにして rawBody を保存
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      (req as RawBodyRequest).rawBody = buf;
+    },
+  })
+);
+
 app.use(
   session({
     secret: SESSION_SECRET,
@@ -80,13 +90,12 @@ app.use(
     cookie: {
       httpOnly: true,
       secure: IS_PRODUCTION,
-      // Safari での state 破損を避けるため、本番も Lax に統一する。
       sameSite: "lax",
     },
   })
 );
 
-// 👇 ここでアップロードされた画像を配信
+// アップロード済み画像を配信
 app.use("/uploads", express.static(path.resolve("uploads")));
 
 app.get("/health", (_req, res) => res.json({ ok: true }));
@@ -99,6 +108,11 @@ app.use("/api/like", likesRouter);
 app.use("/api/matches", matchesRouter);
 app.use("/api/availability", availabilityRouter);
 app.use("/api/group-meals", groupMealsRouter);
+
+// 👇 LINE 関連ルート
+app.use("/api/line", lineRouter);
+app.use("/api/line/webhook", lineWebhookRouter);
+
 app.use("/api/dev", devRouter);
 
 async function ensureDefaultCommunity() {
