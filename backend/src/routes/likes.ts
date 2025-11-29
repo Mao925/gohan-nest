@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import { Prisma, type Like } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.js";
 import {
@@ -21,6 +21,10 @@ const likeSchema = z.object({
 
 const updateLikeSchema = z.object({
   answer: z.enum(["YES", "NO"]),
+});
+
+const likeChoiceSchema = z.object({
+  choice: z.enum(["YES", "NO"]),
 });
 
 export const likesRouter = Router();
@@ -393,5 +397,176 @@ likesRouter.patch("/:targetUserId", async (req, res) => {
     nextSection: payload.nextSection,
     relationship: payload.relationship,
     targetUserId,
+  });
+});
+
+likesRouter.put("/:targetUserId", async (req, res) => {
+  if (req.user?.isAdmin) {
+    return res.status(403).json({ message: "管理者はこの操作を行えません" });
+  }
+
+  const membership = await getApprovedMembership(req.user!.userId);
+  if (!membership) {
+    return res.status(400).json({
+      message:
+        "コミュニティ参加後にご利用ください。先に参加コードで /api/community/join を呼び出してください。",
+      status: "UNAPPLIED",
+      action: "JOIN_REQUIRED",
+    });
+  }
+
+  const targetIdResult = z.string().uuid().safeParse(req.params.targetUserId);
+  if (!targetIdResult.success) {
+    return res.status(400).json({ message: "Invalid target user id" });
+  }
+  const targetUserId = targetIdResult.data;
+
+  const parsed = likeChoiceSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res
+      .status(400)
+      .json({ message: "Invalid input", issues: parsed.error.flatten() });
+  }
+
+  const userId = req.user!.userId;
+  if (targetUserId === userId) {
+    return res
+      .status(400)
+      .json({ message: "自分自身には操作できません" });
+  }
+
+  try {
+    await ensureSameCommunity(
+      userId,
+      targetUserId,
+      membership.communityId
+    );
+  } catch (error) {
+    return res.status(400).json({ message: (error as Error).message });
+  }
+
+  const existingLike = await prisma.like.findFirst({
+    where: {
+      fromUserId: userId,
+      toUserId: targetUserId,
+      communityId: membership.communityId,
+    },
+  });
+
+  const currentMatch = await prisma.match.findFirst({
+    where: {
+      communityId: membership.communityId,
+      OR: [
+        { user1Id: userId, user2Id: targetUserId },
+        { user1Id: targetUserId, user2Id: userId },
+      ],
+    },
+  });
+
+  if (parsed.data.choice === "NO" && currentMatch) {
+    return res
+      .status(400)
+      .json({ message: "マッチ済みのユーザーにはNOを選択できません" });
+  }
+
+  if (existingLike && existingLike.answer === parsed.data.choice) {
+    const reverseLike = await prisma.like.findFirst({
+      where: {
+        communityId: membership.communityId,
+        fromUserId: targetUserId,
+        toUserId: userId,
+      },
+    });
+    const isMutualLike =
+      parsed.data.choice === "YES" && reverseLike?.answer === "YES";
+    return res.json({
+      targetUserId,
+      myLikeStatus: parsed.data.choice,
+      isMutualLike,
+    });
+  }
+
+  if (parsed.data.choice === "NO") {
+    if (existingLike) {
+      await prisma.like.update({
+        where: { id: existingLike.id },
+        data: { answer: "NO" },
+      });
+    }
+    return res.json({
+      targetUserId,
+      myLikeStatus: "NO",
+      isMutualLike: false,
+    });
+  }
+
+  let reverseLike: Like | null = null;
+  await prisma.$transaction(async (tx) => {
+    if (existingLike) {
+      await tx.like.update({
+        where: { id: existingLike.id },
+        data: { answer: "YES" },
+      });
+    } else {
+      await tx.like.create({
+        data: {
+          fromUserId: userId,
+          toUserId: targetUserId,
+          communityId: membership.communityId,
+          answer: "YES",
+        },
+      });
+    }
+
+    reverseLike = await tx.like.findFirst({
+      where: {
+        communityId: membership.communityId,
+        fromUserId: targetUserId,
+        toUserId: userId,
+        answer: "YES",
+      },
+    });
+
+    if (reverseLike) {
+      const [user1Id, user2Id] = [userId, targetUserId].sort();
+      await tx.match.upsert({
+        where: {
+          user1Id_user2Id_communityId: {
+            user1Id,
+            user2Id,
+            communityId: membership.communityId,
+          },
+        },
+        update: {},
+        create: {
+          user1Id,
+          user2Id,
+          communityId: membership.communityId,
+        },
+      });
+    }
+  });
+
+  const isMutualLike = reverseLike?.answer === "YES";
+  const likedUser = await prisma.user.findUnique({
+    where: { id: targetUserId },
+    select: { lineUserId: true },
+  });
+
+  console.log("[LIKE PUT] likedUser for LINE", { likedUser });
+
+  if (likedUser?.lineUserId) {
+    console.log("[LINE PUT] sending 'got-liked' notification to liked user");
+    await sendMatchNotification(likedUser.lineUserId);
+  } else {
+    console.warn("[LINE PUT] skip liked-user notification: missing lineUserId", {
+      likedUserId: targetUserId,
+    });
+  }
+
+  res.json({
+    targetUserId,
+    myLikeStatus: "YES",
+    isMutualLike,
   });
 });

@@ -11,23 +11,59 @@ membersRouter.use(authMiddleware);
 membersRouter.get('/', async (req, res) => {
   const membership = await getApprovedMembership(req.user!.userId);
   if (!membership) {
-    return res.json([]);
+    return res.json({ members: [] });
   }
 
-  const members = await prisma.communityMembership.findMany({
+  const userId = req.user!.userId;
+  const memberships = await prisma.communityMembership.findMany({
     where: { communityId: membership.communityId, status: 'approved' },
     include: { user: { select: { id: true, profile: true } } }
   });
 
-  res.json(
-    members.map((m) => ({
-      id: m.user.id,
-      name: m.user.profile?.name || '',
-      favoriteMeals: m.user.profile?.favoriteMeals || [],
-      profileImageUrl: m.user.profile?.profileImageUrl ?? null,
-      isSelf: m.user.id === req.user!.userId
-    }))
-  );
+  const otherMembers = memberships.filter((m) => m.user.id !== userId);
+  if (otherMembers.length === 0) {
+    return res.json({ members: [] });
+  }
+
+  const memberUserIds = otherMembers.map((member) => member.user.id);
+  const [likesFromMe, likesToMe] = await Promise.all([
+    prisma.like.findMany({
+      where: {
+        communityId: membership.communityId,
+        fromUserId: userId,
+        toUserId: { in: memberUserIds }
+      }
+    }),
+    prisma.like.findMany({
+      where: {
+        communityId: membership.communityId,
+        fromUserId: { in: memberUserIds },
+        toUserId: userId
+      }
+    })
+  ]);
+
+  const myLikeMap = new Map(likesFromMe.map((like) => [like.toUserId, like]));
+  const reverseLikeMap = new Map(likesToMe.map((like) => [like.fromUserId, like]));
+
+  const members = otherMembers.map((membership) => {
+    const profile = membership.user.profile;
+    const myLike = myLikeMap.get(membership.user.id);
+    const partnerLike = reverseLikeMap.get(membership.user.id);
+    const myLikeStatus = myLike?.answer === 'YES' ? 'YES' : 'NO';
+    const isMutualLike = myLikeStatus === 'YES' && partnerLike?.answer === 'YES';
+
+    return {
+      id: membership.user.id,
+      name: profile?.name ?? null,
+      favoriteMeals: profile?.favoriteMeals ?? [],
+      profileImageUrl: profile?.profileImageUrl ?? null,
+      myLikeStatus,
+      isMutualLike
+    };
+  });
+
+  res.json({ members });
 });
 
 membersRouter.get('/relationships', async (req, res) => {
