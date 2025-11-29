@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { DEFAULT_COMMUNITY_CODE, LINE_CHANNEL_ACCESS_TOKEN } from '../config.js';
+import { DEFAULT_COMMUNITY_CODE, LINE_MESSAGING_CHANNEL_ACCESS_TOKEN } from '../config.js';
 const lineRouter = Router();
 function buildAvailabilityTemplate() {
     return {
@@ -36,8 +36,8 @@ function buildAvailabilityTemplate() {
     };
 }
 lineRouter.post('/daily-availability-push', async (_req, res) => {
-    if (!LINE_CHANNEL_ACCESS_TOKEN) {
-        console.error('LINE_CHANNEL_ACCESS_TOKEN is not configured');
+    if (!LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) {
+        console.error('LINE_MESSAGING_CHANNEL_ACCESS_TOKEN is not configured');
         return res.status(500).json({ message: 'LINE channel access token is not configured' });
     }
     const community = await prisma.community.findUnique({
@@ -65,7 +65,7 @@ lineRouter.post('/daily-availability-push', async (_req, res) => {
             const response = await fetch('https://api.line.me/v2/bot/message/push', {
                 method: 'POST',
                 headers: {
-                    Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+                    Authorization: `Bearer ${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`,
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
