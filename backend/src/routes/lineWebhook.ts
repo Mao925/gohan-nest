@@ -14,12 +14,22 @@ const lineWebhookRouter = Router();
 
 function verifySignature(signature: string | undefined, rawBody: Buffer | undefined) {
   if (!signature || !LINE_CHANNEL_SECRET || !rawBody) {
+    console.warn('verifySignature: missing param', {
+      hasSignature: Boolean(signature),
+      hasSecret: Boolean(LINE_CHANNEL_SECRET),
+      hasRawBody: Boolean(rawBody),
+    });
     return false;
   }
   const hash = crypto
     .createHmac('sha256', LINE_CHANNEL_SECRET)
     .update(rawBody)
     .digest('base64');
+  console.log('verifySignature debug', {
+    signatureFromHeader: signature,
+    generatedHash: hash,
+    equal: hash === signature,
+  });
   return hash === signature;
 }
 
@@ -57,6 +67,11 @@ async function replyToLine(replyToken: string, text: string) {
 lineWebhookRouter.post('/', async (req, res) => {
   const rawBody = (req as RawBodyRequest).rawBody;
   const signature = req.header('x-line-signature');
+
+  console.log('LINE webhook incoming', {
+    rawBodyLength: rawBody?.length ?? 0,
+    signature,
+  });
 
   if (!verifySignature(signature, rawBody)) {
     console.warn('Invalid LINE signature');
