@@ -54,10 +54,11 @@ export const DEFAULT_COMMUNITY_CODE =
 export const DATABASE_URL = process.env.DATABASE_URL;
 export const CLIENT_ORIGIN = process.env.NEXT_PUBLIC_API_BASE_URL;
 export const FRONTEND_URL = process.env.FRONTEND_URL || CLIENT_ORIGIN;
-export const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID;
-export const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET;
-export const LINE_CHANNEL_ACCESS_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-export const LINE_REDIRECT_URI = process.env.LINE_REDIRECT_URI;
+export const LINE_LOGIN_CHANNEL_ID = process.env.LINE_LOGIN_CHANNEL_ID;
+export const LINE_LOGIN_CHANNEL_SECRET = process.env.LINE_LOGIN_CHANNEL_SECRET;
+export const LINE_LOGIN_REDIRECT_URI = process.env.LINE_LOGIN_REDIRECT_URI;
+export const LINE_MESSAGING_CHANNEL_SECRET = process.env.LINE_MESSAGING_CHANNEL_SECRET;
+export const LINE_MESSAGING_CHANNEL_ACCESS_TOKEN = process.env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN;
 export const AUTO_APPROVE_MEMBERS = process.env.AUTO_APPROVE_MEMBERS === "true";
 export const SEED_ADMIN_EMAIL =
   process.env.SEED_ADMIN_EMAIL || "admin@example.com";
@@ -75,10 +76,11 @@ export const DEV_RESET_LIKE_ENDPOINT =
 export const SESSION_SECRET = sessionSecret!;
 
 const missingLineEnv = [
-  { key: "LINE_CHANNEL_ID", value: LINE_CHANNEL_ID },
-  { key: "LINE_CHANNEL_SECRET", value: LINE_CHANNEL_SECRET },
-  { key: "LINE_CHANNEL_ACCESS_TOKEN", value: LINE_CHANNEL_ACCESS_TOKEN },
-  { key: "LINE_REDIRECT_URI", value: LINE_REDIRECT_URI },
+  { key: "LINE_LOGIN_CHANNEL_ID", value: LINE_LOGIN_CHANNEL_ID },
+  { key: "LINE_LOGIN_CHANNEL_SECRET", value: LINE_LOGIN_CHANNEL_SECRET },
+  { key: "LINE_LOGIN_REDIRECT_URI", value: LINE_LOGIN_REDIRECT_URI },
+  { key: "LINE_MESSAGING_CHANNEL_SECRET", value: LINE_MESSAGING_CHANNEL_SECRET },
+  { key: "LINE_MESSAGING_CHANNEL_ACCESS_TOKEN", value: LINE_MESSAGING_CHANNEL_ACCESS_TOKEN },
 ]
   .filter((item) => !item.value);
 
