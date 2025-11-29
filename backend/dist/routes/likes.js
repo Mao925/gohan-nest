@@ -386,14 +386,14 @@ likesRouter.put("/:targetUserId", async (req, res) => {
             .json({ message: "マッチ済みのユーザーにはNOを選択できません" });
     }
     if (existingLike && existingLike.answer === parsed.data.choice) {
-        const reverseLike = await prisma.like.findFirst({
+        const reverseExistingLike = await prisma.like.findFirst({
             where: {
                 communityId: membership.communityId,
                 fromUserId: targetUserId,
                 toUserId: userId,
             },
         });
-        const isMutualLike = parsed.data.choice === "YES" && reverseLike?.answer === "YES";
+        const isMutualLike = parsed.data.choice === "YES" && reverseExistingLike?.answer === "YES";
         return res.json({
             targetUserId,
             myLikeStatus: parsed.data.choice,
@@ -413,7 +413,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
             isMutualLike: false,
         });
     }
-    let reverseLike = null;
+    let reverseYesLike = null;
     await prisma.$transaction(async (tx) => {
         if (existingLike) {
             await tx.like.update({
@@ -431,7 +431,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
                 },
             });
         }
-        reverseLike = await tx.like.findFirst({
+        reverseYesLike = await tx.like.findFirst({
             where: {
                 communityId: membership.communityId,
                 fromUserId: targetUserId,
@@ -439,7 +439,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
                 answer: "YES",
             },
         });
-        if (reverseLike) {
+        if (reverseYesLike) {
             const [user1Id, user2Id] = [userId, targetUserId].sort();
             await tx.match.upsert({
                 where: {
@@ -458,7 +458,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
             });
         }
     });
-    const isMutualLike = reverseLike?.answer === "YES";
+    const isMutualLike = reverseYesLike?.answer === "YES";
     const likedUser = await prisma.user.findUnique({
         where: { id: targetUserId },
         select: { lineUserId: true },
