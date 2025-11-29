@@ -1,0 +1,18 @@
+name: Daily LINE Availability Push
+
+on:
+  schedule:
+    # JST 08:00 = UTC 23:00 (night before)
+    - cron: '0 23 * * *'
+  workflow_dispatch:
+
+jobs:
+  call-api:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Call gohan-nest daily availability push
+        run: |
+          curl -X POST "https://gohan-nest-production.up.railway.app/api/line/daily-availability-push" \
+            -H "Content-Type: application/json" \
+            -d '{}'
