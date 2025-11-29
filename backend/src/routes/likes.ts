@@ -475,10 +475,11 @@ likesRouter.put("/:targetUserId", async (req, res) => {
         communityId: membership.communityId,
         fromUserId: targetUserId,
         toUserId: userId,
+        answer: "YES",
       },
     });
     const isMutualLike =
-      parsed.data.choice === "YES" && reverseExistingLike?.answer === "YES";
+      parsed.data.choice === "YES" && Boolean(reverseExistingLike);
     return res.json({
       targetUserId,
       myLikeStatus: parsed.data.choice,
@@ -547,7 +548,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
     }
   });
 
-  const isMutualLike = reverseYesLike?.answer === "YES";
+  const isMutualLike = Boolean(reverseYesLike);
   const likedUser = await prisma.user.findUnique({
     where: { id: targetUserId },
     select: { lineUserId: true },
