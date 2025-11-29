@@ -4,6 +4,7 @@ import { AvailabilityStatus, TimeSlot } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { LINE_MESSAGING_CHANNEL_ACCESS_TOKEN, LINE_MESSAGING_CHANNEL_SECRET } from '../config.js';
 import { getTodayWeekdayInJst } from '../utils/date.js';
+import { pushAvailabilityMessage } from '../lib/lineMessages.js';
 const lineWebhookRouter = Router();
 function verifySignature(signature, rawBody) {
     if (!signature || !LINE_MESSAGING_CHANNEL_SECRET || !rawBody) {
@@ -54,6 +55,9 @@ async function replyToLine(replyToken, text) {
         console.error('LINE reply error', error);
     }
 }
+async function sendDinnerAvailabilityMessage(lineUserId) {
+    await pushAvailabilityMessage(lineUserId, 'NIGHT');
+}
 lineWebhookRouter.post('/', async (req, res) => {
     const rawBody = req.rawBody;
     const signature = req.header('x-line-signature');
@@ -103,6 +107,9 @@ lineWebhookRouter.post('/', async (req, res) => {
             const slotLabel = timeSlot === TimeSlot.DAY ? '昼ごはん' : '夜ごはん';
             const statusLabel = status === AvailabilityStatus.AVAILABLE ? '空いている' : '空いていない';
             await replyToLine(replyToken, `今日の${slotLabel}: ${statusLabel} を登録しました`);
+            if (timeSlot === TimeSlot.DAY) {
+                await sendDinnerAvailabilityMessage(userLineId);
+            }
         }
         catch (error) {
             console.error('Failed to upsert availability from LINE', { error });
