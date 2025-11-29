@@ -3,8 +3,8 @@ import { Router, type Request } from 'express';
 import { AvailabilityStatus, TimeSlot } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import {
-  LINE_CHANNEL_ACCESS_TOKEN,
-  LINE_CHANNEL_SECRET
+  LINE_MESSAGING_CHANNEL_ACCESS_TOKEN,
+  LINE_MESSAGING_CHANNEL_SECRET
 } from '../config.js';
 import { getTodayWeekdayInJst } from '../utils/date.js';
 
@@ -13,16 +13,16 @@ type RawBodyRequest = Request & { rawBody?: Buffer };
 const lineWebhookRouter = Router();
 
 function verifySignature(signature: string | undefined, rawBody: Buffer | undefined) {
-  if (!signature || !LINE_CHANNEL_SECRET || !rawBody) {
+  if (!signature || !LINE_MESSAGING_CHANNEL_SECRET || !rawBody) {
     console.warn('verifySignature: missing param', {
       hasSignature: Boolean(signature),
-      hasSecret: Boolean(LINE_CHANNEL_SECRET),
+      hasSecret: Boolean(LINE_MESSAGING_CHANNEL_SECRET),
       hasRawBody: Boolean(rawBody),
     });
     return false;
   }
   const hash = crypto
-    .createHmac('sha256', LINE_CHANNEL_SECRET)
+    .createHmac('sha256', LINE_MESSAGING_CHANNEL_SECRET)
     .update(rawBody)
     .digest('base64');
   console.log('verifySignature debug', {
@@ -34,8 +34,8 @@ function verifySignature(signature: string | undefined, rawBody: Buffer | undefi
 }
 
 async function replyToLine(replyToken: string, text: string) {
-  if (!LINE_CHANNEL_ACCESS_TOKEN) {
-    console.error('LINE_CHANNEL_ACCESS_TOKEN is not configured for replies');
+  if (!LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) {
+    console.error('LINE_MESSAGING_CHANNEL_ACCESS_TOKEN is not configured for replies');
     return;
   }
 
@@ -43,7 +43,7 @@ async function replyToLine(replyToken: string, text: string) {
     const response = await fetch('https://api.line.me/v2/bot/message/reply', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+        Authorization: `Bearer ${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({

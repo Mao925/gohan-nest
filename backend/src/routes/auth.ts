@@ -12,9 +12,9 @@ import {
   ADMIN_INVITE_CODE,
   CLIENT_ORIGIN,
   FRONTEND_URL,
-  LINE_CHANNEL_ID,
-  LINE_CHANNEL_SECRET,
-  LINE_REDIRECT_URI
+  LINE_LOGIN_CHANNEL_ID,
+  LINE_LOGIN_CHANNEL_SECRET,
+  LINE_LOGIN_REDIRECT_URI
 } from '../config.js';
 import { generateSignedLineState, verifySignedLineState } from '../utils/lineState.js';
 
@@ -41,7 +41,11 @@ function generateRandomString(bytes = 16) {
 }
 
 function ensureLineEnv() {
-  return Boolean(LINE_CHANNEL_ID && LINE_CHANNEL_SECRET && LINE_REDIRECT_URI);
+  return Boolean(
+    LINE_LOGIN_CHANNEL_ID &&
+      LINE_LOGIN_CHANNEL_SECRET &&
+      LINE_LOGIN_REDIRECT_URI
+  );
 }
 
 function buildFrontendRedirect(token: string, isNewUser: boolean) {
@@ -212,8 +216,8 @@ authRouter.get('/line/login', (req, res) => {
 
   const searchParams = new URLSearchParams({
     response_type: 'code',
-    client_id: LINE_CHANNEL_ID!,
-    redirect_uri: LINE_REDIRECT_URI!,
+    client_id: LINE_LOGIN_CHANNEL_ID!,
+    redirect_uri: LINE_LOGIN_REDIRECT_URI!,
     state: stateToken,
     scope: 'openid profile',
     nonce: statePayload.nonce,
@@ -243,8 +247,8 @@ authRouter.get('/line/register', (req, res) => {
 
   const searchParams = new URLSearchParams({
     response_type: 'code',
-    client_id: LINE_CHANNEL_ID!,
-    redirect_uri: LINE_REDIRECT_URI!,
+    client_id: LINE_LOGIN_CHANNEL_ID!,
+    redirect_uri: LINE_LOGIN_REDIRECT_URI!,
     state: stateToken,
     scope: 'openid profile',
     nonce: statePayload.nonce,
@@ -294,9 +298,9 @@ authRouter.get('/line/callback', async (req, res) => {
       body: new URLSearchParams({
         grant_type: 'authorization_code',
         code,
-        redirect_uri: LINE_REDIRECT_URI!,
-        client_id: LINE_CHANNEL_ID!,
-        client_secret: LINE_CHANNEL_SECRET!,
+        redirect_uri: LINE_LOGIN_REDIRECT_URI!,
+        client_id: LINE_LOGIN_CHANNEL_ID!,
+        client_secret: LINE_LOGIN_CHANNEL_SECRET!,
       })
     });
 

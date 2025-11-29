@@ -2,20 +2,20 @@ import crypto from 'node:crypto';
 import { Router } from 'express';
 import { AvailabilityStatus, TimeSlot } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
-import { LINE_CHANNEL_ACCESS_TOKEN, LINE_CHANNEL_SECRET } from '../config.js';
+import { LINE_MESSAGING_CHANNEL_ACCESS_TOKEN, LINE_MESSAGING_CHANNEL_SECRET } from '../config.js';
 import { getTodayWeekdayInJst } from '../utils/date.js';
 const lineWebhookRouter = Router();
 function verifySignature(signature, rawBody) {
-    if (!signature || !LINE_CHANNEL_SECRET || !rawBody) {
+    if (!signature || !LINE_MESSAGING_CHANNEL_SECRET || !rawBody) {
         console.warn('verifySignature: missing param', {
             hasSignature: Boolean(signature),
-            hasSecret: Boolean(LINE_CHANNEL_SECRET),
+            hasSecret: Boolean(LINE_MESSAGING_CHANNEL_SECRET),
             hasRawBody: Boolean(rawBody),
         });
         return false;
     }
     const hash = crypto
-        .createHmac('sha256', LINE_CHANNEL_SECRET)
+        .createHmac('sha256', LINE_MESSAGING_CHANNEL_SECRET)
         .update(rawBody)
         .digest('base64');
     console.log('verifySignature debug', {
@@ -26,15 +26,15 @@ function verifySignature(signature, rawBody) {
     return hash === signature;
 }
 async function replyToLine(replyToken, text) {
-    if (!LINE_CHANNEL_ACCESS_TOKEN) {
-        console.error('LINE_CHANNEL_ACCESS_TOKEN is not configured for replies');
+    if (!LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) {
+        console.error('LINE_MESSAGING_CHANNEL_ACCESS_TOKEN is not configured for replies');
         return;
     }
     try {
         const response = await fetch('https://api.line.me/v2/bot/message/reply', {
             method: 'POST',
             headers: {
-                Authorization: `Bearer ${LINE_CHANNEL_ACCESS_TOKEN}`,
+                Authorization: `Bearer ${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`,
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
