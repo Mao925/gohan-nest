@@ -7,6 +7,7 @@ import {
   LINE_MESSAGING_CHANNEL_SECRET
 } from '../config.js';
 import { getTodayWeekdayInJst } from '../utils/date.js';
+import { pushAvailabilityMessage } from '../lib/lineMessages.js';
 
 type RawBodyRequest = Request & { rawBody?: Buffer };
 
@@ -62,6 +63,10 @@ async function replyToLine(replyToken: string, text: string) {
   } catch (error) {
     console.error('LINE reply error', error);
   }
+}
+
+async function sendDinnerAvailabilityMessage(lineUserId: string) {
+  await pushAvailabilityMessage(lineUserId, 'NIGHT');
 }
 
 lineWebhookRouter.post('/', async (req, res) => {
@@ -127,6 +132,9 @@ lineWebhookRouter.post('/', async (req, res) => {
       const statusLabel =
         status === AvailabilityStatus.AVAILABLE ? '空いている' : '空いていない';
       await replyToLine(replyToken, `今日の${slotLabel}: ${statusLabel} を登録しました`);
+      if (timeSlot === TimeSlot.DAY) {
+        await sendDinnerAvailabilityMessage(userLineId);
+      }
     } catch (error) {
       console.error('Failed to upsert availability from LINE', { error });
       await replyToLine(
