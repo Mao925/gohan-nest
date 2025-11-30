@@ -72,7 +72,7 @@ app.use("/api/community", communityRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/profile", profileRouter);
 app.use("/api/members", membersRouter);
-app.use("/api/like", likesRouter);
+app.use("/api/likes", likesRouter);
 app.use("/api/matches", matchesRouter);
 app.use("/api/availability", availabilityRouter);
 app.use("/api/group-meals", groupMealsRouter);
