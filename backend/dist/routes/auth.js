@@ -131,18 +131,26 @@ authRouter.post('/login', async (req, res) => {
         return res.status(400).json({ message: 'Invalid input', issues: parsed.error.flatten() });
     }
     const { email, password } = parsed.data;
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-        return res.status(401).json({ message: 'Invalid credentials' });
+    try {
+        const user = await prisma.user.findUnique({ where: { email } });
+        console.log('[login] user lookup', { email, userFound: Boolean(user) });
+        if (!user) {
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
+        const passwordMatch = await bcrypt.compare(password, user.passwordHash);
+        console.log('[login] password comparison', { email, passwordMatch });
+        if (!passwordMatch) {
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
+        await getApprovedMembership(user.id);
+        const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+        const payload = await buildUserPayload(user.id);
+        return res.json({ token, user: payload });
     }
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-        return res.status(401).json({ message: 'Invalid credentials' });
+    catch (error) {
+        console.error('[login] unexpected error', error);
+        return res.status(500).json({ message: 'Internal server error' });
     }
-    await getApprovedMembership(user.id);
-    const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
-    const payload = await buildUserPayload(user.id);
-    return res.json({ token, user: payload });
 });
 /**
  * LINE ログイン（既存ユーザーのみ）
@@ -167,6 +175,8 @@ authRouter.get('/line/login', (req, res) => {
         bot_prompt: 'aggressive', // or 'aggressive'
     });
     const authorizationUrl = `https://access.line.me/oauth2/v2.1/authorize?${searchParams.toString()}`;
+    console.log('[line-login] redirectUri', LINE_LOGIN_REDIRECT_URI);
+    console.log('[line-login] authorizationUrl', authorizationUrl);
     res.setHeader('Cache-Control', 'no-store');
     return res.redirect(authorizationUrl);
 });
@@ -193,6 +203,8 @@ authRouter.get('/line/register', (req, res) => {
         bot_prompt: 'aggressive', // or 'aggressive'
     });
     const authorizationUrl = `https://access.line.me/oauth2/v2.1/authorize?${searchParams.toString()}`;
+    console.log('[line-login-register] redirectUri', LINE_LOGIN_REDIRECT_URI);
+    console.log('[line-login-register] authorizationUrl', authorizationUrl);
     res.setHeader('Cache-Control', 'no-store');
     return res.redirect(authorizationUrl);
 });
