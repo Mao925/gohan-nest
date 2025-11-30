@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { ensureSufficientAvailability } from '../middleware/ensureAvailability.js';
 import { getApprovedMembership } from '../utils/membership.js';
 
 export const matchesRouter = Router();
 matchesRouter.use(authMiddleware);
 
-matchesRouter.get('/', async (req, res) => {
+matchesRouter.get('/', ensureSufficientAvailability, async (req, res) => {
   const membership = await getApprovedMembership(req.user!.userId);
   if (!membership) {
     return res.json([]);

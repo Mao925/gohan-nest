@@ -66,3 +66,15 @@ export async function getPairAvailabilitySlots(
 
   return result;
 }
+
+/**
+ * Count how many availability slots the given user marked as AVAILABLE in the AvailabilitySlot table.
+ */
+export async function countUserAvailableSlots(userId: string): Promise<number> {
+  return prisma.availabilitySlot.count({
+    where: {
+      userId,
+      status: AvailabilityStatus.AVAILABLE
+    }
+  });
+}
