@@ -1,7 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { countUserAvailableSlots } from '../utils/availability.js';
-
-const MIN_REQUIRED_AVAILABILITY = 3;
+import { countUserAvailableSlots, MIN_REQUIRED_AVAILABILITY } from '../utils/availability.js';
 
 export async function ensureSufficientAvailability(
   req: Request,
