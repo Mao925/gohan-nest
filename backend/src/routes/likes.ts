@@ -453,23 +453,15 @@ likesRouter.put("/:targetUserId", async (req, res) => {
     },
   });
 
-  const currentMatch = await prisma.match.findFirst({
-    where: {
-      communityId: membership.communityId,
-      OR: [
-        { user1Id: userId, user2Id: targetUserId },
-        { user1Id: targetUserId, user2Id: userId },
-      ],
-    },
-  });
+  const matchWhere = {
+    communityId: membership.communityId,
+    OR: [
+      { user1Id: userId, user2Id: targetUserId },
+      { user1Id: targetUserId, user2Id: userId },
+    ],
+  };
 
-  if (parsed.data.choice === "NO" && currentMatch) {
-    return res
-      .status(400)
-      .json({ message: "マッチ済みのユーザーにはNOを選択できません" });
-  }
-
-  if (existingLike && existingLike.answer === parsed.data.choice) {
+  if (parsed.data.choice === "YES" && existingLike?.answer === "YES") {
     const reverseExistingLike = await prisma.like.findFirst({
       where: {
         communityId: membership.communityId,
@@ -478,26 +470,25 @@ likesRouter.put("/:targetUserId", async (req, res) => {
         answer: "YES",
       },
     });
-    const isMutualLike =
-      parsed.data.choice === "YES" && Boolean(reverseExistingLike);
+    const isMutualLike = Boolean(reverseExistingLike);
     return res.json({
       targetUserId,
-      myLikeStatus: parsed.data.choice,
-      isMutualLike,
+      status: "YES",
+      isMutual: isMutualLike,
     });
   }
 
   if (parsed.data.choice === "NO") {
     if (existingLike) {
-      await prisma.like.update({
-        where: { id: existingLike.id },
-        data: { answer: "NO" },
+      await prisma.$transaction(async (tx) => {
+        await tx.match.deleteMany({ where: matchWhere });
+        await tx.like.delete({ where: { id: existingLike.id } });
       });
     }
     return res.json({
       targetUserId,
-      myLikeStatus: "NO",
-      isMutualLike: false,
+      status: "NO",
+      isMutual: false,
     });
   }
 
@@ -567,7 +558,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
 
   res.json({
     targetUserId,
-    myLikeStatus: "YES",
-    isMutualLike,
+    status: "YES",
+    isMutual: isMutualLike,
   });
 });
