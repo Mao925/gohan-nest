@@ -1,6 +1,8 @@
 import { AvailabilityStatus, TimeSlot, Weekday } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 
+export const MIN_REQUIRED_AVAILABILITY = 3;
+
 export type PairAvailabilitySlotDto = {
   weekday: Weekday;
   timeSlot: TimeSlot;

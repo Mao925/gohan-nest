@@ -4,7 +4,11 @@ import { AvailabilityStatus, TimeSlot, Weekday } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { ensureSameCommunity, getApprovedMembership } from '../utils/membership.js';
-import { getPairAvailabilitySlots } from '../utils/availability.js';
+import {
+  getPairAvailabilitySlots,
+  countUserAvailableSlots,
+  MIN_REQUIRED_AVAILABILITY
+} from '../utils/availability.js';
 
 const availabilitySchema = z.array(
   z.object({
@@ -30,6 +34,21 @@ availabilityRouter.use((req, res, next) => {
     return res.status(403).json({ message: '一般ユーザーのみ利用できます' });
   }
   next();
+});
+
+availabilityRouter.get('/status', async (req, res) => {
+  try {
+    const availableCount = await countUserAvailableSlots(req.user!.userId);
+    const required = MIN_REQUIRED_AVAILABILITY;
+    return res.json({
+      availableCount,
+      required,
+      meetsRequirement: availableCount >= required
+    });
+  } catch (error) {
+    console.error('FETCH AVAILABILITY STATUS ERROR:', error);
+    return res.status(500).json({ message: 'Failed to fetch availability status' });
+  }
 });
 
 // この API はあくまで「曜日 x 昼夜」の週次パターンを管理するもの。
