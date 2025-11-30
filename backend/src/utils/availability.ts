@@ -22,6 +22,17 @@ const ALL_WEEKDAYS: Weekday[] = [
 
 const ALL_TIMESLOTS: TimeSlot[] = [TimeSlot.DAY, TimeSlot.NIGHT];
 
+export const MIN_REQUIRED_AVAILABILITY = 3;
+
+export async function countUserAvailableSlots(userId: string): Promise<number> {
+  return prisma.availabilitySlot.count({
+    where: {
+      userId,
+      status: AvailabilityStatus.AVAILABLE
+    }
+  });
+}
+
 /**
  * Fetch availability for two users and return a full grid of weekday x timeSlot availability booleans.
  * Missing records are treated as unavailable.
