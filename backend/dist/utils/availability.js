@@ -1,5 +1,6 @@
 import { AvailabilityStatus, TimeSlot, Weekday } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
+export const MIN_REQUIRED_AVAILABILITY = 3;
 const ALL_WEEKDAYS = [
     Weekday.MON,
     Weekday.TUE,
@@ -44,4 +45,15 @@ export async function getPairAvailabilitySlots(selfUserId, partnerUserId) {
         }
     }
     return result;
+}
+/**
+ * Count how many availability slots the given user marked as AVAILABLE in the AvailabilitySlot table.
+ */
+export async function countUserAvailableSlots(userId) {
+    return prisma.availabilitySlot.count({
+        where: {
+            userId,
+            status: AvailabilityStatus.AVAILABLE
+        }
+    });
 }

@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getApprovedMembership } from '../utils/membership.js';
 import { buildRelationshipResponse } from '../utils/relationships.js';
+import { countUserAvailableSlots, MIN_REQUIRED_AVAILABILITY } from '../utils/availability.js';
 export const membersRouter = Router();
 membersRouter.use(authMiddleware);
 membersRouter.get('/', async (req, res) => {
@@ -11,6 +12,8 @@ membersRouter.get('/', async (req, res) => {
         return res.json({ members: [] });
     }
     const userId = req.user.userId;
+    const availableCount = await countUserAvailableSlots(userId);
+    const meetsAvailabilityRequirement = availableCount >= MIN_REQUIRED_AVAILABILITY;
     const memberships = await prisma.communityMembership.findMany({
         where: { communityId: membership.communityId, status: 'approved' },
         include: { user: { select: { id: true, profile: true } } }
@@ -53,7 +56,13 @@ membersRouter.get('/', async (req, res) => {
             isMutualLike
         };
     });
-    res.json({ members });
+    const safeMembers = meetsAvailabilityRequirement
+        ? members
+        : members.map((member) => ({
+            ...member,
+            isMutualLike: false
+        }));
+    res.json({ members: safeMembers });
 });
 membersRouter.get('/relationships', async (req, res) => {
     const emptyResponse = {
