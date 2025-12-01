@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.js";
@@ -14,8 +14,11 @@ const likeSchema = z.object({
 const updateLikeSchema = z.object({
     answer: z.enum(["YES", "NO"]),
 });
-const likeChoiceSchema = z.object({
-    choice: z.enum(["YES", "NO"]),
+const ParamsSchema = z.object({
+    targetUserId: z.string().uuid(),
+});
+const BodySchema = z.object({
+    answer: z.enum(["YES", "NO"]),
 });
 export const likesRouter = Router();
 likesRouter.use(authMiddleware);
@@ -334,152 +337,136 @@ likesRouter.put("/:targetUserId", async (req, res) => {
     if (req.user?.isAdmin) {
         return res.status(403).json({ message: "管理者はこの操作を行えません" });
     }
-    const membership = await getApprovedMembership(req.user.userId);
-    if (!membership) {
-        return res.status(400).json({
-            message: "コミュニティ参加後にご利用ください。先に参加コードで /api/community/join を呼び出してください。",
-            status: "UNAPPLIED",
-            action: "JOIN_REQUIRED",
-        });
-    }
-    const targetIdResult = z.string().uuid().safeParse(req.params.targetUserId);
-    if (!targetIdResult.success) {
-        return res.status(400).json({ message: "Invalid target user id" });
-    }
-    const targetUserId = targetIdResult.data;
-    const parsed = likeChoiceSchema.safeParse(req.body);
-    if (!parsed.success) {
-        return res
-            .status(400)
-            .json({ message: "Invalid input", issues: parsed.error.flatten() });
-    }
-    const userId = req.user.userId;
-    if (targetUserId === userId) {
-        return res
-            .status(400)
-            .json({ message: "自分自身には操作できません" });
-    }
     try {
-        await ensureSameCommunity(userId, targetUserId, membership.communityId);
-    }
-    catch (error) {
-        return res.status(400).json({ message: error.message });
-    }
-    const existingLike = await prisma.like.findFirst({
-        where: {
-            fromUserId: userId,
-            toUserId: targetUserId,
-            communityId: membership.communityId,
-        },
-    });
-    const matchWhere = {
-        communityId: membership.communityId,
-        OR: [
-            { user1Id: userId, user2Id: targetUserId },
-            { user1Id: targetUserId, user2Id: userId },
-        ],
-    };
-    if (parsed.data.choice === "YES" && existingLike?.answer === "YES") {
-        const reverseExistingLike = await prisma.like.findFirst({
+        const { targetUserId } = ParamsSchema.parse(req.params);
+        const { answer } = BodySchema.parse(req.body);
+        const fromUserId = req.user.userId;
+        if (fromUserId === targetUserId) {
+            return res.status(400).json({ error: "Cannot like yourself" });
+        }
+        const membership = await getApprovedMembership(fromUserId);
+        if (!membership) {
+            return res.status(404).json({ error: "Membership not found" });
+        }
+        const communityId = membership.communityId;
+        const targetMembership = await prisma.communityMembership.findFirst({
             where: {
-                communityId: membership.communityId,
-                fromUserId: targetUserId,
-                toUserId: userId,
-                answer: "YES",
+                userId: targetUserId,
+                communityId,
+                status: "approved",
             },
         });
-        const isMutualLike = Boolean(reverseExistingLike);
-        return res.json({
-            targetUserId,
-            status: "YES",
-            isMutual: isMutualLike,
-        });
-    }
-    if (parsed.data.choice === "NO") {
-        if (existingLike) {
+        if (!targetMembership) {
+            return res.status(404).json({ error: "Target member not found" });
+        }
+        const matchWhere = {
+            communityId,
+            OR: [
+                { user1Id: fromUserId, user2Id: targetUserId },
+                { user1Id: targetUserId, user2Id: fromUserId },
+            ],
+        };
+        if (answer === "NO") {
             await prisma.$transaction(async (tx) => {
+                await tx.like.upsert({
+                    where: {
+                        fromUserId_toUserId_communityId: {
+                            fromUserId,
+                            toUserId: targetUserId,
+                            communityId,
+                        },
+                    },
+                    update: { answer },
+                    create: {
+                        fromUserId,
+                        toUserId: targetUserId,
+                        communityId,
+                        answer,
+                    },
+                });
                 await tx.match.deleteMany({ where: matchWhere });
-                await tx.like.delete({ where: { id: existingLike.id } });
             });
+            return res.status(204).end();
         }
-        return res.json({
-            targetUserId,
-            status: "NO",
-            isMutual: false,
-        });
-    }
-    let reverseYesLike = null;
-    let matchCreated = false;
-    await prisma.$transaction(async (tx) => {
-        if (existingLike) {
-            await tx.like.update({
-                where: { id: existingLike.id },
-                data: { answer: "YES" },
-            });
-        }
-        else {
-            await tx.like.create({
-                data: {
-                    fromUserId: userId,
+        let matchCreated = false;
+        await prisma.$transaction(async (tx) => {
+            await tx.like.upsert({
+                where: {
+                    fromUserId_toUserId_communityId: {
+                        fromUserId,
+                        toUserId: targetUserId,
+                        communityId,
+                    },
+                },
+                update: { answer },
+                create: {
+                    fromUserId,
                     toUserId: targetUserId,
-                    communityId: membership.communityId,
+                    communityId,
+                    answer,
+                },
+            });
+            const reciprocalYesLike = await tx.like.findFirst({
+                where: {
+                    fromUserId: targetUserId,
+                    toUserId: fromUserId,
+                    communityId,
                     answer: "YES",
                 },
             });
-        }
-        reverseYesLike = await tx.like.findFirst({
-            where: {
-                communityId: membership.communityId,
-                fromUserId: targetUserId,
-                toUserId: userId,
-                answer: "YES",
-            },
-        });
-        if (reverseYesLike) {
-            const [user1Id, user2Id] = [userId, targetUserId].sort();
-            try {
-                await tx.match.create({
-                    data: {
-                        user1Id,
-                        user2Id,
-                        communityId: membership.communityId,
-                    },
-                });
-                matchCreated = true;
+            if (reciprocalYesLike) {
+                const [user1Id, user2Id] = [fromUserId, targetUserId].sort();
+                try {
+                    await tx.match.create({
+                        data: {
+                            user1Id,
+                            user2Id,
+                            communityId,
+                        },
+                    });
+                    matchCreated = true;
+                }
+                catch (error) {
+                    if (!(error instanceof Prisma.PrismaClientKnownRequestError &&
+                        error.code === "P2002")) {
+                        throw error;
+                    }
+                }
             }
-            catch (error) {
-                if (!(error instanceof Prisma.PrismaClientKnownRequestError &&
-                    error.code === "P2002")) {
-                    throw error;
+        });
+        if (matchCreated) {
+            const usersToNotify = await prisma.user.findMany({
+                where: { id: { in: [fromUserId, targetUserId] } },
+                select: { id: true, lineUserId: true },
+            });
+            for (const notifyUser of usersToNotify) {
+                if (!notifyUser.lineUserId) {
+                    console.warn("[likes] skip LINE match notification: missing lineUserId", { userId: notifyUser.id });
+                    continue;
+                }
+                try {
+                    await pushNewMatchNotification(notifyUser.lineUserId);
+                }
+                catch (error) {
+                    console.error("[likes] failed to push LINE match notification", {
+                        userId: notifyUser.id,
+                        error,
+                    });
                 }
             }
         }
-    });
-    const isMutualLike = Boolean(reverseYesLike);
-    if (matchCreated) {
-        const usersToNotify = await prisma.user.findMany({
-            where: { id: { in: [userId, targetUserId] } },
-            select: { id: true, lineUserId: true },
-        });
-        for (const notifyUser of usersToNotify) {
-            if (!notifyUser.lineUserId) {
-                console.warn("[likes] skip LINE match notification: missing lineUserId", { userId: notifyUser.id });
-                continue;
-            }
-            try {
-                await pushNewMatchNotification(notifyUser.lineUserId);
-            }
-            catch (error) {
-                console.error("[likes] failed to push LINE match notification", {
-                    userId: notifyUser.id,
-                    error,
-                });
-            }
-        }
+        return res.status(204).end();
     }
-    res.json({
-        targetUserId,
-        status: "YES",
-        isMutual: isMutualLike,
-    });
+    catch (err) {
+        if (err instanceof ZodError) {
+            console.error("Invalid likes input", {
+                params: req.params,
+                body: req.body,
+                issues: err.issues,
+            });
+            return res.status(400).json({ error: "Invalid input" });
+        }
+        console.error("Unexpected error in PUT /api/likes/:targetUserId", err);
+        return res.status(500).json({ error: "Internal server error" });
+    }
 });
