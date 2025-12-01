@@ -43,13 +43,13 @@ export async function getPairAvailabilitySlots(
 
   const selfSet = new Set(
     selfSlots
-      .filter((s) => s.status === AvailabilityStatus.AVAILABLE)
-      .map((s) => `${s.weekday}-${s.timeSlot}`)
+      .filter((s: any) => s.status === AvailabilityStatus.AVAILABLE)
+      .map((s: any) => `${s.weekday}-${s.timeSlot}`)
   );
   const partnerSet = new Set(
     partnerSlots
-      .filter((s) => s.status === AvailabilityStatus.AVAILABLE)
-      .map((s) => `${s.weekday}-${s.timeSlot}`)
+      .filter((s: any) => s.status === AvailabilityStatus.AVAILABLE)
+      .map((s: any) => `${s.weekday}-${s.timeSlot}`)
   );
 
   const result: PairAvailabilitySlotDto[] = [];

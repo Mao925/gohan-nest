@@ -52,7 +52,7 @@ devRouter.post('/reset-like-state', async (req, res) => {
   const targetUserId = req.user!.userId;
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       await tx.like.deleteMany({
         where: { fromUserId: targetUserId }
       });
@@ -69,7 +69,7 @@ devRouter.post('/reset-like-state', async (req, res) => {
         });
       }
     });
-  } catch (error) {
+  } catch (error: any) {
     return res.status(500).json({ message: (error as Error).message || 'Failed to reset like state.' });
   }
 

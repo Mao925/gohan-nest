@@ -122,7 +122,7 @@ lineRouter.post('/group-meal-reminders', async (_req, res) => {
             timeSlot: gm.timeSlot,
             meetingPlace: gm.meetingPlace
           });
-        } catch (error) {
+        } catch (error: any) {
           console.error('[line-group-meal-reminder] failed', {
             userId: participant.userId,
             groupMealId: gm.id,
@@ -131,7 +131,7 @@ lineRouter.post('/group-meal-reminders', async (_req, res) => {
         }
       }
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('[line-group-meal-reminder] failed to fetch today meals', { error });
   }
 
