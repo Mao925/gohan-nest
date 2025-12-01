@@ -114,19 +114,25 @@ adminRouter.post("/remove-member", async (req, res) => {
     return res.json({ removed: true });
 });
 adminRouter.delete("/members/:memberId", async (req, res) => {
-    const userId = req.user?.userId;
-    if (!userId) {
+    const adminUserId = req.user?.userId;
+    if (!adminUserId) {
         return res.status(401).json({ message: "Authentication required" });
     }
-    const myMembership = await getApprovedMembership(userId);
+    const myMembership = await getApprovedMembership(adminUserId);
     if (!myMembership) {
         return res
             .status(403)
             .json({ message: "所属コミュニティの管理者メンバーが見つかりません" });
     }
+    const targetUserId = req.params.memberId;
+    if (targetUserId === adminUserId) {
+        return res
+            .status(400)
+            .json({ message: "自分自身のメンバーシップは削除できません" });
+    }
     const targetMembership = await prisma.communityMembership.findFirst({
         where: {
-            id: req.params.memberId,
+            userId: targetUserId,
             communityId: myMembership.communityId,
         },
     });
@@ -134,11 +140,6 @@ adminRouter.delete("/members/:memberId", async (req, res) => {
         return res
             .status(404)
             .json({ message: "対象メンバーが見つかりません" });
-    }
-    if (targetMembership.userId === userId) {
-        return res
-            .status(400)
-            .json({ message: "自分自身のメンバーシップは削除できません" });
     }
     await prisma.communityMembership.delete({
         where: { id: targetMembership.id },

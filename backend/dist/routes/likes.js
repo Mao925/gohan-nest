@@ -7,6 +7,7 @@ import { ensureSameCommunity, getApprovedMembership, } from "../utils/membership
 import { INCLUDE_SEED_USERS } from "../config.js";
 import { buildRelationshipPayload, formatPartnerAnswer, } from "../utils/relationships.js";
 import { sendMatchNotification } from "../lib/line-messaging.js";
+import { pushNewMatchNotification } from "../lib/lineMessages.js";
 const likeSchema = z.object({
     targetUserId: z.string().uuid(),
     answer: z.enum(["YES", "NO"]),
@@ -408,6 +409,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
         });
     }
     let reverseYesLike = null;
+    let matchCreated = false;
     await prisma.$transaction(async (tx) => {
         if (existingLike) {
             await tx.like.update({
@@ -435,37 +437,45 @@ likesRouter.put("/:targetUserId", async (req, res) => {
         });
         if (reverseYesLike) {
             const [user1Id, user2Id] = [userId, targetUserId].sort();
-            await tx.match.upsert({
-                where: {
-                    user1Id_user2Id_communityId: {
+            try {
+                await tx.match.create({
+                    data: {
                         user1Id,
                         user2Id,
                         communityId: membership.communityId,
                     },
-                },
-                update: {},
-                create: {
-                    user1Id,
-                    user2Id,
-                    communityId: membership.communityId,
-                },
-            });
+                });
+                matchCreated = true;
+            }
+            catch (error) {
+                if (!(error instanceof Prisma.PrismaClientKnownRequestError &&
+                    error.code === "P2002")) {
+                    throw error;
+                }
+            }
         }
     });
     const isMutualLike = Boolean(reverseYesLike);
-    const likedUser = await prisma.user.findUnique({
-        where: { id: targetUserId },
-        select: { lineUserId: true },
-    });
-    console.log("[LIKE PUT] likedUser for LINE", { likedUser });
-    if (likedUser?.lineUserId) {
-        console.log("[LINE PUT] sending 'got-liked' notification to liked user");
-        await sendMatchNotification(likedUser.lineUserId);
-    }
-    else {
-        console.warn("[LINE PUT] skip liked-user notification: missing lineUserId", {
-            likedUserId: targetUserId,
+    if (matchCreated) {
+        const usersToNotify = await prisma.user.findMany({
+            where: { id: { in: [userId, targetUserId] } },
+            select: { id: true, lineUserId: true },
         });
+        for (const notifyUser of usersToNotify) {
+            if (!notifyUser.lineUserId) {
+                console.warn("[likes] skip LINE match notification: missing lineUserId", { userId: notifyUser.id });
+                continue;
+            }
+            try {
+                await pushNewMatchNotification(notifyUser.lineUserId);
+            }
+            catch (error) {
+                console.error("[likes] failed to push LINE match notification", {
+                    userId: notifyUser.id,
+                    error,
+                });
+            }
+        }
     }
     res.json({
         targetUserId,
