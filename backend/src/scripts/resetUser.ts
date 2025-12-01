@@ -17,7 +17,7 @@ async function resetUser(userId: string) {
     where: { hostUserId: userId },
     select: { id: true },
   });
-  const hostedMealIds = hostedMeals.map((m) => m.id);
+  const hostedMealIds = hostedMeals.map((m: any) => m.id);
 
   if (hostedMealIds.length > 0) {
     console.log(

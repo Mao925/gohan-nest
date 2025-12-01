@@ -60,7 +60,7 @@ async function replyToLine(replyToken: string, text: string) {
         body: errorBody
       });
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('LINE reply error', error);
   }
 }
@@ -135,7 +135,7 @@ lineWebhookRouter.post('/', async (req, res) => {
       if (timeSlot === TimeSlot.DAY) {
         await sendDinnerAvailabilityMessage(userLineId);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to upsert availability from LINE', { error });
       await replyToLine(
         replyToken,

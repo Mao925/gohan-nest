@@ -24,7 +24,7 @@ matchesRouter.get('/', ensureSufficientAvailability, async (req, res) => {
     }
   });
 
-  const data = matches.map((match) => {
+  const data = matches.map((match: any) => {
     const isUser1 = match.user1Id === req.user!.userId;
     const partner = isUser1 ? match.user2 : match.user1;
     return {

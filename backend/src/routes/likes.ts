@@ -43,9 +43,10 @@ likesRouter.get("/next-candidate", async (req, res) => {
       some: { communityId: membership.communityId, status: "approved" },
     },
   };
-  if (!INCLUDE_SEED_USERS) {
-    userWhere.profile = { is: { isSeedMember: false } };
-  }
+  // NOTE:
+  // 旧スキーマでは Profile.isSeedMember でシードメンバーを除外していたが、
+  // 現行スキーマにはこのフラグが存在しないためフィルタを外す。
+  // INCLUDE_SEED_USERS フラグは将来の拡張用として残しておくが、現状の挙動には影響しない。
 
   const approvedMembers = await prisma.user.findMany({
     where: userWhere,
@@ -59,10 +60,9 @@ likesRouter.get("/next-candidate", async (req, res) => {
     },
     select: { toUserId: true },
   });
-  const likedSet = new Set(existingLikes.map((l) => l.toUserId));
+  const likedSet = new Set(existingLikes.map((l: any) => l.toUserId));
 
-  const candidates = approvedMembers.filter(
-    (member) => !likedSet.has(member.id)
+  const candidates = approvedMembers.filter((member: any) => !likedSet.has(member.id)
   );
   if (candidates.length === 0) {
     return res.json({ candidate: null });
@@ -103,12 +103,12 @@ likesRouter.post("/", async (req, res) => {
       parsed.data.targetUserId,
       membership.communityId
     );
-  } catch (error) {
+  } catch (error: any) {
     return res.status(400).json({ message: (error as Error).message });
   }
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: any) => {
       await tx.like.create({
         data: {
           fromUserId: req.user!.userId,
@@ -203,7 +203,7 @@ likesRouter.post("/", async (req, res) => {
     }
 
     return res.json({ matched: false });
-  } catch (error) {
+  } catch (error: any) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
@@ -250,7 +250,7 @@ likesRouter.patch("/:targetUserId", async (req, res) => {
       targetUserId,
       membership.communityId
     );
-  } catch (error) {
+  } catch (error: any) {
     return res.status(400).json({ message: (error as Error).message });
   }
 
@@ -312,7 +312,7 @@ likesRouter.patch("/:targetUserId", async (req, res) => {
     });
   }
 
-  const result = await prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx: any) => {
     await tx.like.update({
       where: { id: existingLike.id },
       data: { answer: parsed.data.answer },
@@ -442,7 +442,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
       targetUserId,
       membership.communityId
     );
-  } catch (error) {
+  } catch (error: any) {
     return res.status(400).json({ message: (error as Error).message });
   }
 
@@ -481,7 +481,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
 
   if (parsed.data.choice === "NO") {
     if (existingLike) {
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         await tx.match.deleteMany({ where: matchWhere });
         await tx.like.delete({ where: { id: existingLike.id } });
       });
@@ -495,7 +495,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
 
   let reverseYesLike: Like | null = null;
   let matchCreated = false;
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     if (existingLike) {
       await tx.like.update({
         where: { id: existingLike.id },
@@ -532,7 +532,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
           },
         });
         matchCreated = true;
-      } catch (error) {
+      } catch (error: any) {
         if (
           !(
             error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -563,7 +563,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
 
       try {
         await pushNewMatchNotification(notifyUser.lineUserId);
-      } catch (error) {
+      } catch (error: any) {
         console.error("[likes] failed to push LINE match notification", {
           userId: notifyUser.id,
           error,

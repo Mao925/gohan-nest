@@ -45,7 +45,7 @@ availabilityRouter.get('/status', async (req, res) => {
       required,
       meetsRequirement: availableCount >= required
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('FETCH AVAILABILITY STATUS ERROR:', error);
     return res.status(500).json({ message: 'Failed to fetch availability status' });
   }
@@ -61,7 +61,7 @@ availabilityRouter.get('/', async (req, res) => {
       orderBy: [{ weekday: 'asc' }, { timeSlot: 'asc' }]
     });
     return res.json(slots);
-  } catch (error) {
+  } catch (error: any) {
     console.error('FETCH AVAILABILITY ERROR:', error);
     return res.status(500).json({ message: 'Failed to fetch availability' });
   }
@@ -85,13 +85,13 @@ availabilityRouter.put('/', async (req, res) => {
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       await tx.availabilitySlot.deleteMany({ where: { userId: req.user!.userId } });
       if (parsed.data.length === 0) {
         return;
       }
       await tx.availabilitySlot.createMany({
-        data: parsed.data.map((slot) => ({
+        data: parsed.data.map((slot: any) => ({
           ...slot,
           userId: req.user!.userId
         }))
@@ -104,7 +104,7 @@ availabilityRouter.put('/', async (req, res) => {
       orderBy: [{ weekday: 'asc' }, { timeSlot: 'asc' }]
     });
     return res.json(slots);
-  } catch (error) {
+  } catch (error: any) {
     console.error('UPSERT AVAILABILITY ERROR:', error);
     return res.status(500).json({ message: 'Failed to update availability' });
   }
@@ -128,13 +128,13 @@ availabilityRouter.get('/pair/:partnerUserId', async (req, res) => {
 
     try {
       await ensureSameCommunity(currentUserId, partnerUserId, membership.communityId);
-    } catch (error) {
+    } catch (error: any) {
       return res.status(403).json({ message: (error as Error).message });
     }
 
     const slots = await getPairAvailabilitySlots(currentUserId, partnerUserId);
     return res.json({ slots });
-  } catch (error) {
+  } catch (error: any) {
     console.error('FETCH PAIR AVAILABILITY ERROR:', error);
     return res.status(500).json({ message: 'Failed to fetch pair availability' });
   }
@@ -185,13 +185,13 @@ availabilityRouter.get('/overlap/:partnerUserId', async (req, res) => {
     ]);
 
     // 共通スロットを計算
-    const partnerSet = new Set(partnerSlots.map((slot) => `${slot.weekday}-${slot.timeSlot}`));
-    const overlap: OverlapSlotDto[] = mySlots.filter((slot) =>
+    const partnerSet = new Set(partnerSlots.map((slot: any) => `${slot.weekday}-${slot.timeSlot}`));
+    const overlap: OverlapSlotDto[] = mySlots.filter((slot: any) =>
       partnerSet.has(`${slot.weekday}-${slot.timeSlot}`)
     );
 
     return res.json(overlap);
-  } catch (error) {
+  } catch (error: any) {
     console.error('FETCH OVERLAP AVAILABILITY ERROR:', error);
     return res.status(500).json({ message: 'Failed to fetch overlap availability' });
   }

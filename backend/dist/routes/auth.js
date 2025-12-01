@@ -114,8 +114,36 @@ authRouter.post('/register-admin', async (req, res) => {
             });
             return createdUser;
         });
+        if (!user) {
+            console.error('[line-callback] user not found after upsert');
+            return res
+                .status(401)
+                .json({
+                message: 'ユーザー情報が見つかりませんでした。もう一度ログインし直してください。'
+            });
+        }
+        if (!user) {
+            console.error('[line-callback] user not found after lookup');
+            return res
+                .status(401)
+                .json({
+                message: 'ユーザー情報が見つかりませんでした。もう一度ログインし直してください。'
+            });
+        }
+        if (!user) {
+            console.error('[auth/line-callback-register] user not found after lookup');
+            return res
+                .status(401)
+                .json({
+                message: 'ユーザー情報が見つかりませんでした。もう一度ログインし直してください。'
+            });
+        }
         await getApprovedMembership(user.id);
-        const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+        const token = signToken({
+            userId: user.id,
+            email: user.email,
+            isAdmin: user.isAdmin
+        });
         const payload = await buildUserPayload(user.id);
         return res.status(201).json({ token, user: payload });
     }
@@ -143,7 +171,11 @@ authRouter.post('/login', async (req, res) => {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
         await getApprovedMembership(user.id);
-        const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+        const token = signToken({
+            userId: user.id,
+            email: user.email,
+            isAdmin: user.isAdmin
+        });
         const payload = await buildUserPayload(user.id);
         return res.json({ token, user: payload });
     }
@@ -320,8 +352,16 @@ authRouter.get('/line/callback', async (req, res) => {
                 }
             });
         }
+        if (!user) {
+            console.error('LINE callback: user is null after find/create');
+            return res.status(500).json({ error: 'Failed to create or fetch user' });
+        }
         await getApprovedMembership(user.id);
-        const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+        const token = signToken({
+            userId: user.id,
+            email: user.email,
+            isAdmin: user.isAdmin
+        });
         const redirectUrl = buildFrontendRedirect(token, isNewUser);
         return res.redirect(redirectUrl);
     }

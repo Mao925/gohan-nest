@@ -94,7 +94,7 @@ authRouter.post('/register', async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, 10);
 
-  const user = await prisma.$transaction(async (tx) => {
+  const user = await prisma.$transaction(async (tx: any) => {
     const createdUser = await tx.user.create({
       data: {
         email,
@@ -144,7 +144,7 @@ authRouter.post('/register-admin', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const user = await prisma.$transaction(async (tx) => {
+    const user = await prisma.$transaction(async (tx: any) => {
       const createdUser = await tx.user.create({
         data: {
           email,
@@ -164,11 +164,45 @@ authRouter.post('/register-admin', async (req, res) => {
       return createdUser;
     });
 
+    if (!user) {
+      console.error('[line-callback] user not found after upsert');
+      return res
+        .status(401)
+        .json({
+          message:
+            'ユーザー情報が見つかりませんでした。もう一度ログインし直してください。'
+        });
+    }
+
+    if (!user) {
+      console.error('[line-callback] user not found after lookup');
+      return res
+        .status(401)
+        .json({
+          message:
+            'ユーザー情報が見つかりませんでした。もう一度ログインし直してください。'
+        });
+    }
+
+    if (!user) {
+      console.error('[auth/line-callback-register] user not found after lookup');
+      return res
+        .status(401)
+        .json({
+          message:
+            'ユーザー情報が見つかりませんでした。もう一度ログインし直してください。'
+        });
+    }
+
     await getApprovedMembership(user.id);
-    const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+    const token = signToken({
+      userId: user.id,
+      email: user.email,
+      isAdmin: user.isAdmin
+    });
     const payload = await buildUserPayload(user.id);
     return res.status(201).json({ token, user: payload });
-  } catch (error) {
+  } catch (error: any) {
     console.error('REGISTER ADMIN ERROR:', error);
     const message = error instanceof Error ? error.message : 'Unknown server error';
     return res.status(500).json({ message });
@@ -197,11 +231,15 @@ authRouter.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    await getApprovedMembership(user.id);
-    const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+    await getApprovedMembership(user!.id);
+    const token = signToken({
+      userId: user!.id,
+      email: user!.email,
+      isAdmin: user!.isAdmin
+    });
     const payload = await buildUserPayload(user.id);
     return res.json({ token, user: payload });
-  } catch (error) {
+  } catch (error: any) {
     console.error('[login] unexpected error', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
@@ -371,7 +409,7 @@ authRouter.get('/line/callback', async (req, res) => {
     if (!user) {
       const hashedPassword = await bcrypt.hash(generateRandomString(24), 10);
       isNewUser = true;
-      user = await prisma.$transaction(async (tx) => {
+      user = await prisma.$transaction(async (tx: any) => {
         const createdUser = await tx.user.create({
           data: {
             email: placeholderEmail,
@@ -403,12 +441,21 @@ authRouter.get('/line/callback', async (req, res) => {
       });
     }
 
-    await getApprovedMembership(user.id);
-    const token = signToken({ userId: user.id, email: user.email, isAdmin: user.isAdmin });
+    if (!user) {
+      console.error('LINE callback: user is null after find/create');
+      return res.status(500).json({ error: 'Failed to create or fetch user' });
+    }
+
+    await getApprovedMembership(user!.id);
+    const token = signToken({
+      userId: user!.id,
+      email: user!.email,
+      isAdmin: user!.isAdmin
+    });
 
     const redirectUrl = buildFrontendRedirect(token, isNewUser);
     return res.redirect(redirectUrl);
-  } catch (error) {
+  } catch (error: any) {
     console.error('LINE callback error:', error);
     return res.status(500).json({ message: 'Failed to complete LINE login' });
   }
@@ -418,7 +465,7 @@ authRouter.get('/me', authMiddleware, async (req, res) => {
   try {
     const payload = await buildUserPayload(req.user!.userId);
     return res.json(payload);
-  } catch (error) {
+  } catch (error: any) {
     return res.status(404).json({ message: 'User not found' });
   }
 });

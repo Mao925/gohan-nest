@@ -86,7 +86,7 @@ const missingLineEnv = [
   { key: "LINE_MESSAGING_CHANNEL_SECRET", value: LINE_MESSAGING_CHANNEL_SECRET },
   { key: "LINE_MESSAGING_CHANNEL_ACCESS_TOKEN", value: LINE_MESSAGING_CHANNEL_ACCESS_TOKEN },
 ]
-  .filter((item) => !item.value);
+  .filter((item: any) => !item.value);
 
 if (!DATABASE_URL) {
   console.warn("DATABASE_URL is not set. Prisma will fail to connect.");
@@ -95,7 +95,7 @@ if (!DATABASE_URL) {
 if (missingLineEnv.length > 0) {
   console.error(
     `LINE environment variables are missing: ${missingLineEnv
-      .map((item) => item.key)
+      .map((item: any) => item.key)
       .join(", ")}`
   );
 }
