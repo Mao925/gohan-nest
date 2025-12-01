@@ -11,12 +11,32 @@ export function toUserPayload(user, communityStatus) {
         profile: user.profile ? buildProfileResponse(user.profile) : null
     };
 }
+export function getProfileAreas(profile) {
+    const areaCandidates = [
+        ...(profile.mainArea ? [profile.mainArea] : []),
+        ...(profile.subAreas ?? [])
+    ];
+    const seen = new Set();
+    const areas = [];
+    for (const entry of areaCandidates) {
+        const trimmed = entry?.trim();
+        if (!trimmed || seen.has(trimmed)) {
+            continue;
+        }
+        seen.add(trimmed);
+        areas.push(trimmed);
+    }
+    return areas;
+}
 export function buildProfileResponse(profile) {
     return {
         id: profile.id,
+        userId: profile.userId,
         name: profile.name,
         favoriteMeals: profile.favoriteMeals ?? [],
         profileImageUrl: profile.profileImageUrl ?? null,
+        areas: getProfileAreas(profile),
+        hobbies: profile.hobbies ?? [],
         mainArea: profile.mainArea ?? null,
         subAreas: profile.subAreas ?? [],
         defaultBudget: profile.defaultBudget ?? null,

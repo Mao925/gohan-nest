@@ -12,17 +12,20 @@ import { computeProfileCompletion } from './profileCompletion.js';
 
 export type ProfileResponse = {
   id: string;
+  userId: string;
   name: string | null;
   favoriteMeals: string[];
   profileImageUrl: string | null;
+  ngFoods: string[];
+  areas: string[];
+  hobbies: string[];
   mainArea: string | null;
   subAreas: string[];
   defaultBudget: GroupMealBudget | null;
   drinkingStyle: DrinkingStyle | null;
-  ngFoods: string[];
-  bio: string | null;
   mealStyle: MealStyle | null;
   goMealFrequency: GoMealFrequency | null;
+  bio: string | null;
   completionRate: number;
 };
 
@@ -48,12 +51,33 @@ export function toUserPayload(user: UserWithProfile, communityStatus: CommunityS
   };
 }
 
+export function getProfileAreas(profile: Profile): string[] {
+  const areaCandidates = [
+    ...(profile.mainArea ? [profile.mainArea] : []),
+    ...(profile.subAreas ?? [])
+  ];
+  const seen = new Set<string>();
+  const areas: string[] = [];
+  for (const entry of areaCandidates) {
+    const trimmed = entry?.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    areas.push(trimmed);
+  }
+  return areas;
+}
+
 export function buildProfileResponse(profile: Profile): ProfileResponse {
   return {
     id: profile.id,
+    userId: profile.userId,
     name: profile.name,
     favoriteMeals: profile.favoriteMeals ?? [],
     profileImageUrl: profile.profileImageUrl ?? null,
+    areas: getProfileAreas(profile),
+    hobbies: profile.hobbies ?? [],
     mainArea: profile.mainArea ?? null,
     subAreas: profile.subAreas ?? [],
     defaultBudget: profile.defaultBudget ?? null,

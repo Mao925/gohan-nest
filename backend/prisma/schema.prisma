@@ -42,6 +42,7 @@ model Profile {
   defaultBudget   GroupMealBudget?
   drinkingStyle   DrinkingStyle?
   ngFoods         String[] @default([])
+  hobbies         String[] @default([])
 
   bio             String?
   mealStyle       MealStyle?
