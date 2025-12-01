@@ -1,5 +1,7 @@
 import { LINE_MESSAGING_CHANNEL_ACCESS_TOKEN } from '../config.js';
 
+const LINE_MESSAGING_API_URL = 'https://api.line.me/v2/bot/message/push';
+
 type TimeSlotString = 'DAY' | 'NIGHT';
 
 function buildAvailabilityTemplate(timeSlot: TimeSlotString) {
@@ -47,7 +49,7 @@ export async function pushAvailabilityMessage(
   }
 
   try {
-    const response = await fetch('https://api.line.me/v2/bot/message/push', {
+    const response = await fetch(LINE_MESSAGING_API_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`,
@@ -73,6 +75,60 @@ export async function pushAvailabilityMessage(
     console.error('LINE push error', { userId: lineUserId, error });
     return false;
   }
+}
+
+async function sendLineTextMessage(lineUserId: string, text: string): Promise<void> {
+  if (!LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) {
+    throw new Error('LINE_MESSAGING_CHANNEL_ACCESS_TOKEN is not configured for pushes');
+  }
+
+  const response = await fetch(LINE_MESSAGING_API_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      to: lineUserId,
+      messages: [
+        {
+          type: 'text',
+          text
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`LINE text push failed (${response.status}): ${errorBody}`);
+  }
+}
+
+export async function pushGroupMealInviteNotification(
+  lineUserId: string
+): Promise<void> {
+  if (!lineUserId) return;
+
+  const text =
+    'あなたがみんなでGO飯に招待されたようです🎉\n\n' +
+    '今すぐアプリをチェック👀\n' +
+    'https://gohan-expo.vercel.app/login';
+
+  await sendLineTextMessage(lineUserId, text);
+}
+
+export async function pushNewMatchNotification(
+  lineUserId: string
+): Promise<void> {
+  if (!lineUserId) return;
+
+  const text =
+    '誰かとあなたがマッチしたようです✨\n\n' +
+    '今すぐアプリで日程調整🗓️\n' +
+    'https://gohan-expo.vercel.app/login';
+
+  await sendLineTextMessage(lineUserId, text);
 }
 
 export { buildAvailabilityTemplate };

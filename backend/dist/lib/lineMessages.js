@@ -1,4 +1,5 @@
 import { LINE_MESSAGING_CHANNEL_ACCESS_TOKEN } from '../config.js';
+const LINE_MESSAGING_API_URL = 'https://api.line.me/v2/bot/message/push';
 function buildAvailabilityTemplate(timeSlot) {
     const isLunch = timeSlot === 'DAY';
     const title = isLunch ? '今日の昼ごはんの予定' : '今日の夜ごはんの予定';
@@ -37,7 +38,7 @@ export async function pushAvailabilityMessage(lineUserId, timeSlot) {
         return false;
     }
     try {
-        const response = await fetch('https://api.line.me/v2/bot/message/push', {
+        const response = await fetch(LINE_MESSAGING_API_URL, {
             method: 'POST',
             headers: {
                 Authorization: `Bearer ${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`,
@@ -63,5 +64,46 @@ export async function pushAvailabilityMessage(lineUserId, timeSlot) {
         console.error('LINE push error', { userId: lineUserId, error });
         return false;
     }
+}
+async function sendLineTextMessage(lineUserId, text) {
+    if (!LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) {
+        throw new Error('LINE_MESSAGING_CHANNEL_ACCESS_TOKEN is not configured for pushes');
+    }
+    const response = await fetch(LINE_MESSAGING_API_URL, {
+        method: 'POST',
+        headers: {
+            Authorization: `Bearer ${LINE_MESSAGING_CHANNEL_ACCESS_TOKEN}`,
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            to: lineUserId,
+            messages: [
+                {
+                    type: 'text',
+                    text
+                }
+            ]
+        })
+    });
+    if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`LINE text push failed (${response.status}): ${errorBody}`);
+    }
+}
+export async function pushGroupMealInviteNotification(lineUserId) {
+    if (!lineUserId)
+        return;
+    const text = 'あなたがみんなでGO飯に招待されたようです🎉\n\n' +
+        '今すぐアプリをチェック👀\n' +
+        'https://gohan-expo.vercel.app/login';
+    await sendLineTextMessage(lineUserId, text);
+}
+export async function pushNewMatchNotification(lineUserId) {
+    if (!lineUserId)
+        return;
+    const text = '誰かとあなたがマッチしたようです✨\n\n' +
+        '今すぐアプリで日程調整を🗓️\n' +
+        'https://gohan-expo.vercel.app/login';
+    await sendLineTextMessage(lineUserId, text);
 }
 export { buildAvailabilityTemplate };

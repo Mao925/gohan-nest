@@ -1,12 +1,16 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
-import { DEFAULT_COMMUNITY_CODE, LINE_MESSAGING_CHANNEL_ACCESS_TOKEN } from '../config.js';
+import { DEFAULT_COMMUNITY_CODE, ENABLE_LINE_DAILY_AVAILABILITY_PUSH, LINE_MESSAGING_CHANNEL_ACCESS_TOKEN } from '../config.js';
 import { pushAvailabilityMessage } from '../lib/lineMessages.js';
 const lineRouter = Router();
 function sendLunchAvailabilityMessage(lineUserId) {
     return pushAvailabilityMessage(lineUserId, 'DAY');
 }
 lineRouter.post('/daily-availability-push', async (_req, res) => {
+    if (!ENABLE_LINE_DAILY_AVAILABILITY_PUSH) {
+        console.log('[line-daily-push] disabled via ENABLE_LINE_DAILY_AVAILABILITY_PUSH=false');
+        return res.status(204).send();
+    }
     if (!LINE_MESSAGING_CHANNEL_ACCESS_TOKEN) {
         console.error('LINE_MESSAGING_CHANNEL_ACCESS_TOKEN is not configured');
         return res.status(500).json({ message: 'LINE channel access token is not configured' });
