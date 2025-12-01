@@ -3,11 +3,30 @@ import { prisma } from '../lib/prisma.js';
 import {
   DEFAULT_COMMUNITY_CODE,
   ENABLE_LINE_DAILY_AVAILABILITY_PUSH,
+  ENABLE_LINE_GROUPMEAL_REMINDER,
   LINE_MESSAGING_CHANNEL_ACCESS_TOKEN
 } from '../config.js';
-import { pushAvailabilityMessage } from '../lib/lineMessages.js';
+import {
+  pushAvailabilityMessage,
+  pushGroupMealReminderMessage
+} from '../lib/lineMessages.js';
+import {
+  GroupMealParticipantStatus,
+  GroupMealStatus
+} from '@prisma/client';
 
 const lineRouter = Router();
+
+function startOfToday(): Date {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function addDays(date: Date, days: number): Date {
+  const result = new Date(date);
+  result.setDate(result.getDate() + days);
+  return result;
+}
 
 function sendLunchAvailabilityMessage(lineUserId: string) {
   return pushAvailabilityMessage(lineUserId, 'DAY');
@@ -56,6 +75,67 @@ lineRouter.post('/daily-availability-push', async (_req, res) => {
   }
 
   return res.json({ sent, target: memberships.length });
+});
+
+lineRouter.post('/group-meal-reminders', async (_req, res) => {
+  if (!ENABLE_LINE_GROUPMEAL_REMINDER) {
+    console.log('[line-group-meal-reminder] disabled');
+    return res.status(204).send();
+  }
+
+  const today = startOfToday();
+  const tomorrow = addDays(today, 1);
+
+  try {
+    const groupMeals = await prisma.groupMeal.findMany({
+      where: {
+        date: { gte: today, lt: tomorrow },
+        status: {
+          in: [GroupMealStatus.OPEN, GroupMealStatus.FULL]
+        }
+      },
+      include: {
+        participants: {
+          include: {
+            user: true
+          }
+        }
+      }
+    });
+
+    for (const gm of groupMeals) {
+      for (const participant of gm.participants) {
+        if (participant.status === GroupMealParticipantStatus.CANCELLED) {
+          continue;
+        }
+
+        const lineUserId = participant.user.lineUserId;
+        if (!lineUserId) {
+          continue;
+        }
+
+        try {
+          await pushGroupMealReminderMessage({
+            lineUserId,
+            title: gm.title ?? 'GO飯',
+            date: gm.date,
+            timeSlot: gm.timeSlot,
+            meetingPlace: gm.meetingPlace
+          });
+        } catch (error) {
+          console.error('[line-group-meal-reminder] failed', {
+            userId: participant.userId,
+            groupMealId: gm.id,
+            error
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[line-group-meal-reminder] failed to fetch today meals', { error });
+  }
+
+  return res.status(204).send();
 });
 
 export { lineRouter };
