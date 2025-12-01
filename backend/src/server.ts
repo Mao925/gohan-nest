@@ -31,6 +31,7 @@ import { availabilityRouter } from "./routes/availability.js";
 import { groupMealsRouter } from "./routes/groupMeals.js";
 import { lineRouter } from "./routes/line.js";
 import { lineWebhookRouter } from "./routes/lineWebhook.js";
+import { authMiddleware } from "./middleware/auth.js";
 
 console.log(`Starting API server in ${NODE_ENV} mode`);
 
@@ -98,7 +99,6 @@ app.use(
 // アップロード済み画像を配信
 app.use("/uploads", express.static(path.resolve("uploads")));
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
 app.use("/api/auth", authRouter);
 app.use("/api/community", communityRouter);
 app.use("/api/admin", adminRouter);
@@ -112,6 +112,23 @@ app.use("/api/group-meals", groupMealsRouter);
 // 👇 LINE 関連ルート
 app.use("/api/line", lineRouter);
 app.use("/api/line/webhook", lineWebhookRouter);
+
+app.get("/api/availability-status", authMiddleware, async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    return res.json({
+      hasAvailability: false,
+    });
+  } catch (err) {
+    console.error("GET /api/availability-status failed", err);
+    return res.json({
+      hasAvailability: false,
+    });
+  }
+});
 
 app.use("/api/dev", devRouter);
 
