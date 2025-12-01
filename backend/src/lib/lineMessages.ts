@@ -115,6 +115,32 @@ async function sendLineTextMessage(lineUserId: string, text: string): Promise<vo
   }
 }
 
+export async function pushGroupMealInviteNotification(
+  lineUserId: string
+): Promise<void> {
+  if (!lineUserId) return;
+
+  const text =
+    'あなたがみんなでGO飯に招待されたようです🎉\n\n' +
+    '今すぐアプリをチェック👀\n' +
+    'https://gohan-expo.vercel.app/login';
+
+  await sendLineTextMessage(lineUserId, text);
+}
+
+export async function pushNewMatchNotification(
+  lineUserId: string
+): Promise<void> {
+  if (!lineUserId) return;
+
+  const text =
+    '誰かとあなたがマッチしたようです✨\n\n' +
+    '今すぐアプリで日程調整🗓️\n' +
+    'https://gohan-expo.vercel.app/login';
+
+  await sendLineTextMessage(lineUserId, text);
+}
+
 export async function pushGroupMealReminderMessage(params: {
   lineUserId: string;
   title: string;
@@ -142,32 +168,6 @@ export async function pushGroupMealReminderMessage(params: {
     `集合場所：${placeLabel}\n\n` +
     '詳細はアプリで確認してください👇\n' +
     loginUrl;
-
-  await sendLineTextMessage(lineUserId, text);
-}
-
-export async function pushGroupMealInviteNotification(
-  lineUserId: string
-): Promise<void> {
-  if (!lineUserId) return;
-
-  const text =
-    'あなたがみんなでGO飯に招待されたようです🎉\n\n' +
-    '今すぐアプリをチェック👀\n' +
-    'https://gohan-expo.vercel.app/login';
-
-  await sendLineTextMessage(lineUserId, text);
-}
-
-export async function pushNewMatchNotification(
-  lineUserId: string
-): Promise<void> {
-  if (!lineUserId) return;
-
-  const text =
-    '誰かとあなたがマッチしたようです✨\n\n' +
-    '今すぐアプリで日程調整🗓️\n' +
-    'https://gohan-expo.vercel.app/login';
 
   await sendLineTextMessage(lineUserId, text);
 }
