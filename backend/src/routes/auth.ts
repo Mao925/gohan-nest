@@ -72,11 +72,6 @@ const adminRegisterSchema = registerSchema.extend({
   adminInviteCode: z.string().min(1)
 });
 
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6)
-});
-
 export const authRouter = Router();
 
 authRouter.post('/register', async (req, res) => {
@@ -210,38 +205,66 @@ authRouter.post('/register-admin', async (req, res) => {
 });
 
 authRouter.post('/login', async (req, res) => {
-  const parsed = loginSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid input', issues: parsed.error.flatten() });
-  }
-
-  const { email, password } = parsed.data;
   try {
-    const user = await prisma.user.findUnique({ where: { email } });
-    console.log('[login] user lookup', { email, userFound: Boolean(user) });
-
-    if (!user) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    const passwordMatch = await bcrypt.compare(password, user.passwordHash);
-    console.log('[login] password comparison', { email, passwordMatch });
-
-    if (!passwordMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    await getApprovedMembership(user!.id);
-    const token = signToken({
-      userId: user!.id,
-      email: user!.email,
-      isAdmin: user!.isAdmin
+    const loginSchema = z.object({
+      email: z.string().email(),
+      password: z.string().min(6),
     });
-    const payload = await buildUserPayload(user.id);
-    return res.json({ token, user: payload });
-  } catch (error: any) {
-    console.error('[login] unexpected error', error);
-    return res.status(500).json({ message: 'Internal server error' });
+
+    const { email, password } = loginSchema.parse(req.body);
+
+    // ユーザー取得
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    // 存在しない or パスワードハッシュがないユーザーは 401
+    if (!user || !user.passwordHash) {
+      return res.status(401).json({
+        error: 'メールアドレスまたはパスワードが違います',
+      });
+    }
+
+    // パスワード照合
+    const isValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isValid) {
+      return res.status(401).json({
+        error: 'メールアドレスまたはパスワードが違います',
+      });
+    }
+
+    // 承認済みメンバーシップの有無（取れなくても致命的にはしない）
+    let membershipApproved = false;
+    try {
+      const membership = await getApprovedMembership(user.id);
+      membershipApproved = !!membership;
+    } catch (err) {
+      console.error('getApprovedMembership failed in /login', err);
+      // ここでは 500 にせず、ログだけ出して続行
+    }
+
+    const token = signToken({
+      userId: user.id,
+      email: user.email,
+      isAdmin: user.isAdmin,
+    });
+
+    return res.json({
+      token,
+      membershipApproved,
+    });
+  } catch (err: any) {
+    if (err?.name === 'ZodError') {
+      console.error('Zod validation error in /login', err);
+      return res.status(400).json({
+        error: '入力内容が不正です',
+      });
+    }
+
+    console.error('Unexpected error in /login', err);
+    return res.status(500).json({
+      error: 'Internal Server Error',
+    });
   }
 });
 
