@@ -53,7 +53,7 @@ adminRouter.get("/join-requests", async (_req, res) => {
     orderBy: { createdAt: "asc" },
   });
   res.json(
-    requests.map((request) => ({
+    requests.map((request: any) => ({
       id: request.id,
       name: request.user.profile?.name || "",
       email: request.user.email,
@@ -96,7 +96,7 @@ adminRouter.post("/promote", async (req, res) => {
       data: { isAdmin: true },
     });
     return res.json({ id: user.id, isAdmin: user.isAdmin });
-  } catch (error) {
+  } catch (error: any) {
     return res.status(404).json({ message: "User not found" });
   }
 });
@@ -120,7 +120,7 @@ adminRouter.post("/remove-member", async (req, res) => {
     return res.status(404).json({ message: "User not found" });
   }
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     await tx.communityMembership.deleteMany({ where: { userId: user.id } });
     await tx.match.deleteMany({
       where: { OR: [{ user1Id: user.id }, { user2Id: user.id }] },
@@ -187,7 +187,7 @@ adminRouter.delete("/seed-admin", async (_req, res) => {
     return res.status(404).json({ message: "Seed admin not found" });
   }
 
-  await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx: any) => {
     await tx.communityMembership.deleteMany({ where: { userId: user.id } });
     await tx.profile.deleteMany({ where: { userId: user.id } });
     await tx.match.deleteMany({

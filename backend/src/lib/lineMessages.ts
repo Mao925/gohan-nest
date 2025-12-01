@@ -81,7 +81,7 @@ export async function pushAvailabilityMessage(
       return false;
     }
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('LINE push error', { userId: lineUserId, error });
     return false;
   }

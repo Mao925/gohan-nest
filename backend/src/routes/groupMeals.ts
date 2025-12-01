@@ -118,11 +118,11 @@ function buildGroupMealPayload(
   currentUserId?: string,
   opts: { joinedOnly?: boolean } = {}
 ) {
-  const joinedCount = groupMeal.participants.filter((p) =>
+  const joinedCount = groupMeal.participants.filter((p: any) =>
     ATTENDING_PARTICIPANT_STATUSES.includes(p.status)
   ).length;
   const participants = (opts.joinedOnly
-    ? groupMeal.participants.filter((p) => ATTENDING_PARTICIPANT_STATUSES.includes(p.status))
+    ? groupMeal.participants.filter((p: any) => ATTENDING_PARTICIPANT_STATUSES.includes(p.status))
     : groupMeal.participants
   ).map(buildParticipantPayload);
 
@@ -245,7 +245,7 @@ groupMealsRouter.post('/', async (req, res) => {
     });
 
     return res.status(201).json(buildGroupMealPayload(groupMeal, req.user!.userId));
-  } catch (error) {
+  } catch (error: any) {
     console.error('CREATE GROUP MEAL ERROR:', error);
     return res.status(500).json({ message: 'Failed to create group meal' });
   }
@@ -273,11 +273,11 @@ groupMealsRouter.get('/', async (req, res) => {
     });
 
     return res.json(
-      groupMeals.map((gm) =>
+      groupMeals.map((gm: any) =>
         buildGroupMealPayload(gm, req.user!.userId, { joinedOnly: true })
       )
     );
-  } catch (error) {
+  } catch (error: any) {
     console.error('LIST GROUP MEALS ERROR:', error);
     return res.status(500).json({ message: 'Failed to fetch group meals' });
   }
@@ -316,7 +316,7 @@ groupMealsRouter.get('/:id', async (req, res) => {
     }
 
     return res.json(buildGroupMealPayload(groupMeal, req.user!.userId));
-  } catch (error) {
+  } catch (error: any) {
     console.error('GET GROUP MEAL DETAIL ERROR:', error);
     return res.status(500).json({ message: 'Failed to fetch group meal detail' });
   }
@@ -348,7 +348,7 @@ groupMealsRouter.delete('/:id', async (req, res) => {
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       await tx.groupMealParticipant.deleteMany({
         where: { groupMealId: groupMeal.id }
       });
@@ -359,7 +359,7 @@ groupMealsRouter.delete('/:id', async (req, res) => {
     });
 
     return res.status(204).send();
-  } catch (error) {
+  } catch (error: any) {
     console.error('DELETE GROUP MEAL ERROR:', error);
     return res.status(500).json({ message: 'Failed to delete group meal' });
   }
@@ -391,7 +391,7 @@ groupMealsRouter.get('/:id/candidates', async (req, res) => {
     return res.status(403).json({ message: '別のコミュニティの募集です' });
   }
 
-  const participantIds = new Set(groupMeal.participants.map((p) => p.userId));
+  const participantIds = new Set(groupMeal.participants.map((p: any) => p.userId));
 
   try {
     const baseCandidates = await prisma.user.findMany({
@@ -411,7 +411,7 @@ groupMealsRouter.get('/:id/candidates', async (req, res) => {
 
     const availableSlots = await prisma.availabilitySlot.findMany({
       where: {
-        userId: { in: baseCandidates.map((c) => c.id) },
+        userId: { in: baseCandidates.map((c: any) => c.id) },
         weekday: groupMeal.weekday,
         timeSlot: groupMeal.timeSlot,
         status: AvailabilityStatus.AVAILABLE
@@ -419,10 +419,10 @@ groupMealsRouter.get('/:id/candidates', async (req, res) => {
       select: { userId: true }
     });
 
-    const availableUserIds = new Set(availableSlots.map((s) => s.userId));
+    const availableUserIds = new Set(availableSlots.map((s: any) => s.userId));
 
     const candidates = baseCandidates
-      .map((u) => ({
+      .map((u: any) => ({
         userId: u.id,
         name: u.profile?.name ?? '未設定',
         favoriteMeals: u.profile?.favoriteMeals || [],
@@ -432,7 +432,7 @@ groupMealsRouter.get('/:id/candidates', async (req, res) => {
       .sort((a, b) => Number(b.isAvailableForSlot) - Number(a.isAvailableForSlot));
 
     return res.json({ candidates });
-  } catch (error) {
+  } catch (error: any) {
     console.error('FETCH GROUP MEAL CANDIDATES ERROR:', error);
     return res.status(500).json({ message: 'Failed to fetch candidates' });
   }
@@ -472,16 +472,16 @@ groupMealsRouter.post('/:id/invite', async (req, res) => {
     return res.status(400).json({ message: 'ホスト自身は招待できません' });
   }
   const existingParticipantIds = new Set(
-    groupMeal.participants.map((p) => p.userId)
+    groupMeal.participants.map((p: any) => p.userId)
   );
-  const newParticipantIds = uniqueUserIds.filter((id) => !existingParticipantIds.has(id));
+  const newParticipantIds = uniqueUserIds.filter((id: any) => !existingParticipantIds.has(id));
 
   const existingActiveIds = new Set(
     groupMeal.participants
-      .filter((p) => isActiveParticipant(p.status))
-      .map((p) => p.userId)
+      .filter((p: any) => isActiveParticipant(p.status))
+      .map((p: any) => p.userId)
   );
-  const newInviteCount = uniqueUserIds.filter((id) => !existingActiveIds.has(id)).length;
+  const newInviteCount = uniqueUserIds.filter((id: any) => !existingActiveIds.has(id)).length;
   const activeCount = existingActiveIds.size;
 
   if (activeCount + newInviteCount > groupMeal.capacity) {
@@ -498,7 +498,7 @@ groupMealsRouter.post('/:id/invite', async (req, res) => {
     },
     select: { id: true }
   });
-  const validUserIdSet = new Set(validUsers.map((u) => u.id));
+  const validUserIdSet = new Set(validUsers.map((u: any) => u.id));
   const invalidId = uniqueUserIds.find((id) => !validUserIdSet.has(id));
   if (invalidId) {
     return res
@@ -507,7 +507,7 @@ groupMealsRouter.post('/:id/invite', async (req, res) => {
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       for (const userId of uniqueUserIds) {
         await tx.groupMealParticipant.upsert({
           where: { groupMealId_userId: { groupMealId, userId } },
@@ -543,7 +543,7 @@ groupMealsRouter.post('/:id/invite', async (req, res) => {
 
         try {
           await pushGroupMealInviteNotification(user.lineUserId);
-        } catch (error) {
+        } catch (error: any) {
           console.error('[group-meals] failed to push LINE invite', {
             targetUserId: user.id,
             error
@@ -554,7 +554,7 @@ groupMealsRouter.post('/:id/invite', async (req, res) => {
 
     const updated = await fetchGroupMeal(groupMealId);
     return res.json(buildGroupMealPayload(updated!, req.user!.userId));
-  } catch (error) {
+  } catch (error: any) {
     console.error('INVITE GROUP MEAL CANDIDATES ERROR:', error);
     return res.status(500).json({ message: 'Failed to invite candidates' });
   }
@@ -589,7 +589,7 @@ groupMealsRouter.post('/:id/respond', async (req, res) => {
   }
 
   const participant = groupMeal.participants.find((p) => p.userId === req.user!.userId);
-  const activeCount = groupMeal.participants.filter((p) => isActiveParticipant(p.status)).length;
+  const activeCount = groupMeal.participants.filter((p: any) => isActiveParticipant(p.status)).length;
 
   if (parsedBody.data.action === 'ACCEPT') {
     if (participant?.isHost) {
@@ -602,7 +602,7 @@ groupMealsRouter.post('/:id/respond', async (req, res) => {
     }
 
     try {
-      await prisma.$transaction(async (tx) => {
+      await prisma.$transaction(async (tx: any) => {
         if (participant) {
           await tx.groupMealParticipant.update({
             where: { groupMealId_userId: { groupMealId, userId: req.user!.userId } },
@@ -624,7 +624,7 @@ groupMealsRouter.post('/:id/respond', async (req, res) => {
 
       const updated = await fetchGroupMeal(groupMealId);
       return res.json(buildGroupMealPayload(updated!, req.user!.userId));
-    } catch (error) {
+    } catch (error: any) {
       console.error('RESPOND GROUP MEAL ACCEPT ERROR:', error);
       return res.status(500).json({ message: 'Failed to accept invitation' });
     }
@@ -639,7 +639,7 @@ groupMealsRouter.post('/:id/respond', async (req, res) => {
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       await tx.groupMealParticipant.update({
         where: { groupMealId_userId: { groupMealId, userId: req.user!.userId } },
         data: { status: GroupMealParticipantStatus.DECLINED }
@@ -650,7 +650,7 @@ groupMealsRouter.post('/:id/respond', async (req, res) => {
 
     const updated = await fetchGroupMeal(groupMealId);
     return res.json(buildGroupMealPayload(updated!, req.user!.userId));
-  } catch (error) {
+  } catch (error: any) {
     console.error('RESPOND GROUP MEAL DECLINE ERROR:', error);
     return res.status(500).json({ message: 'Failed to decline invitation' });
   }
@@ -692,7 +692,7 @@ groupMealsRouter.patch('/:groupMealId/participant/status', async (req, res) => {
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       await tx.groupMealParticipant.update({
         where: { id: participant.id },
         data: { status: parsedBody.data.status as GroupMealParticipantStatus }
@@ -702,7 +702,7 @@ groupMealsRouter.patch('/:groupMealId/participant/status', async (req, res) => {
 
     const updated = await fetchGroupMeal(groupMealId);
     return res.json(buildGroupMealPayload(updated!, req.user!.userId));
-  } catch (error) {
+  } catch (error: any) {
     console.error('UPDATE PARTICIPANT STATUS ERROR:', error);
     return res.status(500).json({ message: 'Failed to update participant status' });
   }
@@ -739,13 +739,13 @@ groupMealsRouter.post('/:id/join', async (req, res) => {
     return res.status(400).json({ message: '既に参加または招待済みです' });
   }
 
-  const activeCount = groupMeal.participants.filter((p) => isActiveParticipant(p.status)).length;
+  const activeCount = groupMeal.participants.filter((p: any) => isActiveParticipant(p.status)).length;
   if (activeCount + 1 > groupMeal.capacity) {
     return res.status(400).json({ message: '定員に空きがありません' });
   }
 
   try {
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       if (participant) {
         await tx.groupMealParticipant.update({
           where: { groupMealId_userId: { groupMealId, userId: req.user!.userId } },
@@ -767,7 +767,7 @@ groupMealsRouter.post('/:id/join', async (req, res) => {
 
     const updated = await fetchGroupMeal(groupMealId);
     return res.json(buildGroupMealPayload(updated!, req.user!.userId));
-  } catch (error) {
+  } catch (error: any) {
     console.error('JOIN GROUP MEAL ERROR:', error);
     return res.status(500).json({ message: 'Failed to join group meal' });
   }
@@ -824,7 +824,7 @@ groupMealsRouter.post('/:id/leave', async (req, res) => {
     }
 
     // 6. トランザクション内でステータス更新 & 定員ステータス同期
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: any) => {
       await tx.groupMealParticipant.update({
         where: {
           groupMealId_userId: {
@@ -842,7 +842,7 @@ groupMealsRouter.post('/:id/leave', async (req, res) => {
 
     const updated = await fetchGroupMeal(groupMealId);
     return res.json(buildGroupMealPayload(updated!, req.user!.userId));
-  } catch (error) {
+  } catch (error: any) {
     console.error('LEAVE GROUP MEAL ERROR:', error);
     return res.status(500).json({ message: 'Failed to leave group meal' });
   }

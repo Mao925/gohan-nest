@@ -4,7 +4,6 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { ensureSameCommunity, getApprovedMembership, } from "../utils/membership.js";
-import { INCLUDE_SEED_USERS } from "../config.js";
 import { buildRelationshipPayload, formatPartnerAnswer, } from "../utils/relationships.js";
 import { sendMatchNotification } from "../lib/line-messaging.js";
 import { pushNewMatchNotification } from "../lib/lineMessages.js";
@@ -31,9 +30,10 @@ likesRouter.get("/next-candidate", async (req, res) => {
             some: { communityId: membership.communityId, status: "approved" },
         },
     };
-    if (!INCLUDE_SEED_USERS) {
-        userWhere.profile = { is: { isSeedMember: false } };
-    }
+    // NOTE:
+    // 旧スキーマでは Profile.isSeedMember でシードメンバーを除外していたが、
+    // 現行スキーマにはこのフラグが存在しないためフィルタを外す。
+    // INCLUDE_SEED_USERS フラグは将来の拡張用として残しておくが、現状の挙動には影響しない。
     const approvedMembers = await prisma.user.findMany({
         where: userWhere,
         include: { profile: true },

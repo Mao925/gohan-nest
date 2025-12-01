@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { getCommunityStatus } from './membership.js';
+import { computeProfileCompletion } from './profileCompletion.js';
 export function toUserPayload(user, communityStatus) {
     return {
         id: user.id,
@@ -7,7 +8,24 @@ export function toUserPayload(user, communityStatus) {
         email: user.email,
         isAdmin: user.isAdmin,
         communityStatus,
-        profile: user.profile
+        profile: user.profile ? buildProfileResponse(user.profile) : null
+    };
+}
+export function buildProfileResponse(profile) {
+    return {
+        id: profile.id,
+        name: profile.name,
+        favoriteMeals: profile.favoriteMeals ?? [],
+        profileImageUrl: profile.profileImageUrl ?? null,
+        mainArea: profile.mainArea ?? null,
+        subAreas: profile.subAreas ?? [],
+        defaultBudget: profile.defaultBudget ?? null,
+        drinkingStyle: profile.drinkingStyle ?? null,
+        ngFoods: profile.ngFoods ?? [],
+        bio: profile.bio ?? null,
+        mealStyle: profile.mealStyle ?? null,
+        goMealFrequency: profile.goMealFrequency ?? null,
+        completionRate: computeProfileCompletion(profile)
     };
 }
 export async function buildUserPayload(userId) {

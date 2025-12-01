@@ -6,9 +6,36 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { buildProfileResponse } from '../utils/user.js';
 const updateSchema = z.object({
-    name: z.string().min(1),
+    name: z.string().trim().min(1).max(50),
     favoriteMeals: z.array(z.string().trim().min(1).max(100)).max(3),
+    mainArea: z.string().trim().max(50).optional().nullable(),
+    subAreas: z
+        .array(z.string().trim().min(1).max(50))
+        .max(5)
+        .optional(),
+    defaultBudget: z
+        .enum(['UNDER_1000', 'UNDER_1500', 'UNDER_2000', 'OVER_2000'])
+        .optional()
+        .nullable(),
+    drinkingStyle: z
+        .enum(['NO_ALCOHOL', 'SOMETIMES', 'ENJOY_DRINKING'])
+        .optional()
+        .nullable(),
+    ngFoods: z
+        .array(z.string().trim().min(1).max(50))
+        .max(10)
+        .optional(),
+    bio: z.string().trim().max(200).optional().nullable(),
+    mealStyle: z
+        .enum(['TALK_DEEP', 'CASUAL_CHAT', 'BRAINSTORM'])
+        .optional()
+        .nullable(),
+    goMealFrequency: z
+        .enum(['WEEKLY', 'BIWEEKLY', 'MONTHLY'])
+        .optional()
+        .nullable()
 });
 export const profileRouter = Router();
 profileRouter.use(authMiddleware);
@@ -45,17 +72,12 @@ const upload = multer({
 // ========= プロフィール取得 =========
 profileRouter.get('/', async (req, res) => {
     const profile = await prisma.profile.findUnique({
-        where: { userId: req.user.userId },
+        where: { userId: req.user.userId }
     });
     if (!profile) {
         return res.status(404).json({ message: 'Profile not found' });
     }
-    res.json({
-        id: profile.id,
-        name: profile.name,
-        favoriteMeals: profile.favoriteMeals ?? [],
-        profileImageUrl: profile.profileImageUrl ?? null,
-    });
+    res.json(buildProfileResponse(profile));
 });
 // ========= プロフィール更新（名前 & 好きなご飯） =========
 profileRouter.put('/', async (req, res) => {
@@ -65,24 +87,47 @@ profileRouter.put('/', async (req, res) => {
             .status(400)
             .json({ message: 'Invalid input', issues: parsed.error.flatten() });
     }
+    const body = req.body;
+    const hasProperty = (key) => Object.prototype.hasOwnProperty.call(body, key);
     const profile = await prisma.profile.upsert({
         where: { userId: req.user.userId },
         update: {
             name: parsed.data.name,
             favoriteMeals: parsed.data.favoriteMeals,
+            ...(hasProperty('mainArea') ? { mainArea: parsed.data.mainArea } : {}),
+            ...(hasProperty('subAreas')
+                ? { subAreas: parsed.data.subAreas ?? [] }
+                : {}),
+            ...(hasProperty('defaultBudget')
+                ? { defaultBudget: parsed.data.defaultBudget }
+                : {}),
+            ...(hasProperty('drinkingStyle')
+                ? { drinkingStyle: parsed.data.drinkingStyle }
+                : {}),
+            ...(hasProperty('ngFoods') ? { ngFoods: parsed.data.ngFoods ?? [] } : {}),
+            ...(hasProperty('bio') ? { bio: parsed.data.bio } : {}),
+            ...(hasProperty('mealStyle')
+                ? { mealStyle: parsed.data.mealStyle }
+                : {}),
+            ...(hasProperty('goMealFrequency')
+                ? { goMealFrequency: parsed.data.goMealFrequency }
+                : {})
         },
         create: {
             userId: req.user.userId,
             name: parsed.data.name,
             favoriteMeals: parsed.data.favoriteMeals,
+            mainArea: parsed.data.mainArea ?? null,
+            subAreas: parsed.data.subAreas ?? [],
+            defaultBudget: parsed.data.defaultBudget ?? null,
+            drinkingStyle: parsed.data.drinkingStyle ?? null,
+            ngFoods: parsed.data.ngFoods ?? [],
+            bio: parsed.data.bio ?? null,
+            mealStyle: parsed.data.mealStyle ?? null,
+            goMealFrequency: parsed.data.goMealFrequency ?? null
         },
     });
-    res.json({
-        id: profile.id,
-        name: profile.name,
-        favoriteMeals: profile.favoriteMeals ?? [],
-        profileImageUrl: profile.profileImageUrl ?? null,
-    });
+    res.json(buildProfileResponse(profile));
 });
 // ========= プロフィール画像アップロード =========
 profileRouter.post('/image', upload.single('image'), async (req, res) => {
@@ -102,12 +147,9 @@ profileRouter.post('/image', upload.single('image'), async (req, res) => {
             name: '未設定',
             favoriteMeals: [],
             profileImageUrl: imageUrl,
+            subAreas: [],
+            ngFoods: []
         },
     });
-    res.json({
-        id: profile.id,
-        name: profile.name,
-        favoriteMeals: profile.favoriteMeals ?? [],
-        profileImageUrl: profile.profileImageUrl ?? null,
-    });
+    res.json(buildProfileResponse(profile));
 });

@@ -24,12 +24,12 @@ membersRouter.get('/', async (req, res) => {
     include: { user: { select: { id: true, profile: true } } }
   });
 
-  const otherMembers = memberships.filter((m) => m.user.id !== userId);
+  const otherMembers = memberships.filter((m: any) => m.user.id !== userId);
   if (otherMembers.length === 0) {
     return res.json({ members: [] });
   }
 
-  const memberUserIds = otherMembers.map((member) => member.user.id);
+  const memberUserIds = otherMembers.map((member: any) => member.user.id);
   const [likesFromMe, likesToMe] = await Promise.all([
     prisma.like.findMany({
       where: {
@@ -47,10 +47,10 @@ membersRouter.get('/', async (req, res) => {
     })
   ]);
 
-  const myLikeMap = new Map(likesFromMe.map((like) => [like.toUserId, like]));
-  const reverseLikeMap = new Map(likesToMe.map((like) => [like.fromUserId, like]));
+  const myLikeMap = new Map(likesFromMe.map((like: any) => [like.toUserId, like]));
+  const reverseLikeMap = new Map(likesToMe.map((like: any) => [like.fromUserId, like]));
 
-  const members = otherMembers.map((membership) => {
+  const members = otherMembers.map((membership: any) => {
     const profile = membership.user.profile;
     const myLike = myLikeMap.get(membership.user.id);
     const partnerLike = reverseLikeMap.get(membership.user.id);
@@ -69,7 +69,7 @@ membersRouter.get('/', async (req, res) => {
 
   const safeMembers = meetsAvailabilityRequirement
     ? members
-    : members.map((member) => ({
+    : members.map((member: any) => ({
         ...member,
         isMutualLike: false
       }));
@@ -113,7 +113,7 @@ membersRouter.get('/relationships', async (req, res) => {
     })
   ]);
 
-  const likedUserIds = likesFrom.map((like) => like.toUserId);
+  const likedUserIds = likesFrom.map((like: any) => like.toUserId);
   const reverseLikes =
     likedUserIds.length === 0
       ? []

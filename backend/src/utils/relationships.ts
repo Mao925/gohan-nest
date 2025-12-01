@@ -89,7 +89,7 @@ export function buildRelationshipResponse(params: {
   likesFrom: LikeWithTargetProfile[];
   reverseLikes: Like[];
 }): RelationshipResponse {
-  const matchCards: RelationshipCard[] = params.matches.map((match) => {
+  const matchCards: RelationshipCard[] = params.matches.map((match: any) => {
     const isUser1 = match.user1Id === params.userId;
     const partner = isUser1 ? match.user2 : match.user1;
     const relationshipId = match.id;
@@ -110,8 +110,8 @@ export function buildRelationshipResponse(params: {
     };
   });
 
-  const matchedUserIds = new Set(matchCards.map((summary) => summary.targetUserId));
-  const reverseMap = new Map(params.reverseLikes.map((like) => [like.fromUserId, like]));
+  const matchedUserIds = new Set(matchCards.map((summary: any) => summary.targetUserId));
+  const reverseMap = new Map(params.reverseLikes.map((like: any) => [like.fromUserId, like]));
 
   const awaitingResponse: RelationshipCard[] = [];
   const rejected: RelationshipCard[] = [];
