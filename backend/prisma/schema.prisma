@@ -44,10 +44,18 @@ enum GroupMealStatus {
   CLOSED
 }
 
+enum GroupMealBudget {
+  UNDER_1000
+  UNDER_1500
+  UNDER_2000
+  OVER_2000
+}
+
 enum GroupMealParticipantStatus {
   INVITED
   JOINED
   DECLINED
+  LATE
   CANCELLED
 }
 
@@ -157,12 +165,14 @@ model GroupMeal {
   hostUserId   String
 
   title        String?
+  meetingPlace String?     @db.VarChar(255)
 
   date        DateTime
   weekday     Weekday
   timeSlot    TimeSlot
 
   capacity     Int
+  budget       GroupMealBudget?
   status       GroupMealStatus @default(OPEN)
 
   participants GroupMealParticipant[]

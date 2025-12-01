@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { AvailabilityStatus, GroupMealParticipantStatus, GroupMealStatus, TimeSlot } from '@prisma/client';
+import { AvailabilityStatus, GroupMealBudget, GroupMealParticipantStatus, GroupMealStatus, TimeSlot } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getApprovedMembership } from '../utils/membership.js';
@@ -9,7 +9,9 @@ const createGroupMealSchema = z.object({
     title: z.string().trim().max(100).optional(),
     date: z.string().datetime(),
     timeSlot: z.nativeEnum(TimeSlot),
-    capacity: z.number().int().min(3).max(10)
+    capacity: z.number().int().min(3).max(10),
+    meetingPlace: z.string().trim().max(255).optional(),
+    budget: z.nativeEnum(GroupMealBudget).optional()
 });
 const inviteSchema = z.object({
     userIds: z.array(z.string().uuid()).min(1)
@@ -19,6 +21,12 @@ const respondSchema = z.object({
 });
 const idParamSchema = z.object({
     id: z.string().uuid()
+});
+const groupMealIdParamSchema = z.object({
+    groupMealId: z.string().uuid()
+});
+const updateParticipantStatusSchema = z.object({
+    status: z.enum(['JOINED', 'LATE', 'CANCELLED'])
 });
 const membershipRequiredResponse = {
     message: 'コミュニティ参加後にご利用ください。先に参加コードで /api/community/join を呼び出してください。',
@@ -32,7 +40,12 @@ const groupMealInclude = {
 };
 const ACTIVE_PARTICIPANT_STATUSES = [
     GroupMealParticipantStatus.INVITED,
-    GroupMealParticipantStatus.JOINED
+    GroupMealParticipantStatus.JOINED,
+    GroupMealParticipantStatus.LATE
+];
+const ATTENDING_PARTICIPANT_STATUSES = [
+    GroupMealParticipantStatus.JOINED,
+    GroupMealParticipantStatus.LATE
 ];
 const WEEKDAY_FROM_UTCDAY = [
     'SUN',
@@ -67,12 +80,14 @@ function getMyStatus(participants, userId) {
         return 'JOINED';
     if (me.status === GroupMealParticipantStatus.INVITED)
         return 'INVITED';
+    if (me.status === GroupMealParticipantStatus.LATE)
+        return 'LATE';
     return 'NONE';
 }
 function buildGroupMealPayload(groupMeal, currentUserId, opts = {}) {
-    const joinedCount = groupMeal.participants.filter((p) => p.status === GroupMealParticipantStatus.JOINED).length;
+    const joinedCount = groupMeal.participants.filter((p) => ATTENDING_PARTICIPANT_STATUSES.includes(p.status)).length;
     const participants = (opts.joinedOnly
-        ? groupMeal.participants.filter((p) => p.status === GroupMealParticipantStatus.JOINED)
+        ? groupMeal.participants.filter((p) => ATTENDING_PARTICIPANT_STATUSES.includes(p.status))
         : groupMeal.participants).map(buildParticipantPayload);
     return {
         id: groupMeal.id,
@@ -87,6 +102,8 @@ function buildGroupMealPayload(groupMeal, currentUserId, opts = {}) {
             name: groupMeal.host.profile?.name || '',
             profileImageUrl: groupMeal.host.profile?.profileImageUrl ?? null
         },
+        meetingPlace: groupMeal.meetingPlace ?? null,
+        budget: groupMeal.budget ?? null,
         joinedCount,
         remainingSlots: Math.max(groupMeal.capacity - joinedCount, 0),
         myStatus: currentUserId ? getMyStatus(groupMeal.participants, currentUserId) : undefined,
@@ -139,7 +156,8 @@ groupMealsRouter.post('/', async (req, res) => {
     if (!parsed.success) {
         return res.status(400).json({ message: 'Invalid input', issues: parsed.error.flatten() });
     }
-    const date = new Date(parsed.data.date);
+    const body = parsed.data;
+    const date = new Date(body.date);
     if (Number.isNaN(date.getTime())) {
         return res.status(400).json({ message: 'Invalid date' });
     }
@@ -149,11 +167,13 @@ groupMealsRouter.post('/', async (req, res) => {
             data: {
                 communityId: membership.communityId,
                 hostUserId: req.user.userId,
-                title: parsed.data.title,
+                title: body.title,
                 date,
                 weekday,
-                timeSlot: parsed.data.timeSlot,
-                capacity: parsed.data.capacity,
+                timeSlot: body.timeSlot,
+                capacity: body.capacity,
+                meetingPlace: body.meetingPlace ?? null,
+                budget: body.budget ?? null,
                 participants: {
                     create: {
                         userId: req.user.userId,
@@ -521,6 +541,50 @@ groupMealsRouter.post('/:id/respond', async (req, res) => {
         return res.status(500).json({ message: 'Failed to decline invitation' });
     }
 });
+groupMealsRouter.patch('/:groupMealId/participant/status', async (req, res) => {
+    const membership = await getApprovedMembership(req.user.userId);
+    if (!membership) {
+        return res.status(400).json(membershipRequiredResponse);
+    }
+    const parsedParams = groupMealIdParamSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+        return res.status(400).json({ message: 'Invalid group meal id', issues: parsedParams.error.flatten() });
+    }
+    const groupMealId = parsedParams.data.groupMealId;
+    const parsedBody = updateParticipantStatusSchema.safeParse(req.body);
+    if (!parsedBody.success) {
+        return res.status(400).json({ message: 'Invalid body', issues: parsedBody.error.flatten() });
+    }
+    const groupMeal = await prisma.groupMeal.findUnique({
+        where: { id: groupMealId },
+        include: { participants: true }
+    });
+    if (!groupMeal) {
+        return res.status(404).json({ message: 'Group meal not found' });
+    }
+    if (groupMeal.communityId !== membership.communityId) {
+        return res.status(403).json({ message: '別のコミュニティの募集です' });
+    }
+    const participant = groupMeal.participants.find((p) => p.userId === req.user.userId);
+    if (!participant) {
+        return res.status(404).json({ message: '参加メンバーとして登録されていません' });
+    }
+    try {
+        await prisma.$transaction(async (tx) => {
+            await tx.groupMealParticipant.update({
+                where: { id: participant.id },
+                data: { status: parsedBody.data.status }
+            });
+            await syncGroupMealStatus(tx, groupMeal.id, groupMeal.capacity, groupMeal.status);
+        });
+        const updated = await fetchGroupMeal(groupMealId);
+        return res.json(buildGroupMealPayload(updated, req.user.userId));
+    }
+    catch (error) {
+        console.error('UPDATE PARTICIPANT STATUS ERROR:', error);
+        return res.status(500).json({ message: 'Failed to update participant status' });
+    }
+});
 groupMealsRouter.post('/:id/join', async (req, res) => {
     const membership = await getApprovedMembership(req.user.userId);
     if (!membership) {
@@ -617,7 +681,7 @@ groupMealsRouter.post('/:id/leave', async (req, res) => {
                 .status(400)
                 .json({ message: 'ホストは退会できません。箱を削除してください。' });
         }
-        if (participant.status !== GroupMealParticipantStatus.JOINED) {
+        if (!ATTENDING_PARTICIPANT_STATUSES.includes(participant.status)) {
             // INVITED や DECLINED/CANCELLED の場合は「参加中ではない」とみなす
             return res.status(400).json({ message: '参加中の募集ではありません' });
         }
