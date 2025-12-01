@@ -8,9 +8,44 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { buildProfileResponse } from '../utils/user.js';
 
+const MAX_MULTI_SELECT = 10;
+
+const normalizeMultiSelect = (values: string[] | undefined, maxLength = MAX_MULTI_SELECT) => {
+  if (!values) {
+    return undefined;
+  }
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const value of values) {
+    const trimmed = value.trim();
+    if (!trimmed || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    normalized.push(trimmed);
+    if (normalized.length >= maxLength) {
+      break;
+    }
+  }
+  return normalized;
+};
+
+const createAreaFields = (values: string[] | undefined) => ({
+  mainArea: values?.[0] ?? null,
+  subAreas: values ? values.slice(1) : []
+});
+
 const updateSchema = z.object({
   name: z.string().trim().min(1).max(50),
   favoriteMeals: z.array(z.string().trim().min(1).max(100)).max(3),
+  areas: z
+    .array(z.string().trim().min(1).max(50))
+    .max(MAX_MULTI_SELECT)
+    .optional(),
+  hobbies: z
+    .array(z.string().trim().min(1).max(50))
+    .max(MAX_MULTI_SELECT)
+    .optional(),
   mainArea: z.string().trim().max(50).optional().nullable(),
   subAreas: z
     .array(z.string().trim().min(1).max(50))
@@ -106,15 +141,34 @@ profileRouter.put('/', async (req, res) => {
   const hasProperty = (key: string) =>
     Object.prototype.hasOwnProperty.call(body, key);
 
+  const normalizedAreas = normalizeMultiSelect(parsed.data.areas);
+  const normalizedHobbies = normalizeMultiSelect(parsed.data.hobbies);
+  const hasAreas = hasProperty('areas');
+  const hasHobbies = hasProperty('hobbies');
+  const areaUpdateFields = hasAreas
+    ? createAreaFields(normalizedAreas)
+    : {
+        ...(hasProperty('mainArea') ? { mainArea: parsed.data.mainArea } : {}),
+        ...(hasProperty('subAreas')
+          ? { subAreas: parsed.data.subAreas ?? [] }
+          : {})
+      };
+  const hobbiesUpdateFields = hasHobbies
+    ? { hobbies: normalizedHobbies ?? [] }
+    : {};
+  const createAreaData = normalizedAreas
+    ? createAreaFields(normalizedAreas)
+    : {
+        mainArea: parsed.data.mainArea ?? null,
+        subAreas: parsed.data.subAreas ?? []
+      };
+
   const profile = await prisma.profile.upsert({
     where: { userId: req.user!.userId },
     update: {
       name: parsed.data.name,
       favoriteMeals: parsed.data.favoriteMeals,
-      ...(hasProperty('mainArea') ? { mainArea: parsed.data.mainArea } : {}),
-      ...(hasProperty('subAreas')
-        ? { subAreas: parsed.data.subAreas ?? [] }
-        : {}),
+      ...areaUpdateFields,
       ...(hasProperty('defaultBudget')
         ? { defaultBudget: parsed.data.defaultBudget }
         : {}),
@@ -128,20 +182,21 @@ profileRouter.put('/', async (req, res) => {
         : {}),
       ...(hasProperty('goMealFrequency')
         ? { goMealFrequency: parsed.data.goMealFrequency }
-        : {})
+        : {}),
+      ...hobbiesUpdateFields
     },
     create: {
       userId: req.user!.userId,
       name: parsed.data.name,
       favoriteMeals: parsed.data.favoriteMeals,
-      mainArea: parsed.data.mainArea ?? null,
-      subAreas: parsed.data.subAreas ?? [],
+      ...createAreaData,
       defaultBudget: parsed.data.defaultBudget ?? null,
       drinkingStyle: parsed.data.drinkingStyle ?? null,
       ngFoods: parsed.data.ngFoods ?? [],
       bio: parsed.data.bio ?? null,
       mealStyle: parsed.data.mealStyle ?? null,
-      goMealFrequency: parsed.data.goMealFrequency ?? null
+      goMealFrequency: parsed.data.goMealFrequency ?? null,
+      hobbies: normalizedHobbies ?? []
     },
   });
 
@@ -171,7 +226,8 @@ profileRouter.post('/image', upload.single('image'), async (req, res) => {
       favoriteMeals: [],
       profileImageUrl: imageUrl,
       subAreas: [],
-      ngFoods: []
+      ngFoods: [],
+      hobbies: []
     },
   });
 
