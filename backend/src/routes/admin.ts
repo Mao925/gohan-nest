@@ -133,6 +133,45 @@ adminRouter.post("/remove-member", async (req, res) => {
   return res.json({ removed: true });
 });
 
+adminRouter.delete("/members/:memberId", async (req, res) => {
+  const userId = req.user?.userId;
+  if (!userId) {
+    return res.status(401).json({ message: "Authentication required" });
+  }
+
+  const myMembership = await getApprovedMembership(userId);
+  if (!myMembership) {
+    return res
+      .status(403)
+      .json({ message: "所属コミュニティの管理者メンバーが見つかりません" });
+  }
+
+  const targetMembership = await prisma.communityMembership.findFirst({
+    where: {
+      id: req.params.memberId,
+      communityId: myMembership.communityId,
+    },
+  });
+
+  if (!targetMembership) {
+    return res
+      .status(404)
+      .json({ message: "対象メンバーが見つかりません" });
+  }
+
+  if (targetMembership.userId === userId) {
+    return res
+      .status(400)
+      .json({ message: "自分自身のメンバーシップは削除できません" });
+  }
+
+  await prisma.communityMembership.delete({
+    where: { id: targetMembership.id },
+  });
+
+  return res.status(204).send();
+});
+
 adminRouter.delete("/seed-admin", async (_req, res) => {
   if (!SEED_ADMIN_EMAIL) {
     return res
