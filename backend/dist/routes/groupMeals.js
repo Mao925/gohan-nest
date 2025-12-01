@@ -4,6 +4,7 @@ import { AvailabilityStatus, GroupMealParticipantStatus, GroupMealStatus, TimeSl
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getApprovedMembership } from '../utils/membership.js';
+import { pushGroupMealInviteNotification } from '../lib/lineMessages.js';
 const createGroupMealSchema = z.object({
     title: z.string().trim().max(100).optional(),
     date: z.string().datetime(),
@@ -358,6 +359,8 @@ groupMealsRouter.post('/:id/invite', async (req, res) => {
     if (uniqueUserIds.includes(req.user.userId)) {
         return res.status(400).json({ message: 'ホスト自身は招待できません' });
     }
+    const existingParticipantIds = new Set(groupMeal.participants.map((p) => p.userId));
+    const newParticipantIds = uniqueUserIds.filter((id) => !existingParticipantIds.has(id));
     const existingActiveIds = new Set(groupMeal.participants
         .filter((p) => isActiveParticipant(p.status))
         .map((p) => p.userId));
@@ -402,6 +405,29 @@ groupMealsRouter.post('/:id/invite', async (req, res) => {
             }
             await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status);
         });
+        if (newParticipantIds.length > 0) {
+            const usersToNotify = await prisma.user.findMany({
+                where: { id: { in: newParticipantIds } },
+                select: { id: true, lineUserId: true }
+            });
+            for (const user of usersToNotify) {
+                if (!user.lineUserId) {
+                    console.warn('[group-meals] skip LINE invite: missing lineUserId', {
+                        targetUserId: user.id
+                    });
+                    continue;
+                }
+                try {
+                    await pushGroupMealInviteNotification(user.lineUserId);
+                }
+                catch (error) {
+                    console.error('[group-meals] failed to push LINE invite', {
+                        targetUserId: user.id,
+                        error
+                    });
+                }
+            }
+        }
         const updated = await fetchGroupMeal(groupMealId);
         return res.json(buildGroupMealPayload(updated, req.user.userId));
     }
