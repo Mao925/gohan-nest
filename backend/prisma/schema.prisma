@@ -19,6 +19,8 @@ model User {
   availability          AvailabilitySlot[]
   memberships           CommunityMembership[]
   hostedGroupMeals      GroupMeal[]            @relation("GroupMealHost")
+  invitedGroupMeals     GroupMealCandidate[]    @relation("GroupMealCandidateUser")
+  sentGroupMealInvites  GroupMealCandidate[]    @relation("GroupMealCandidateInviter")
   groupMealParticipants GroupMealParticipant[]
   likesFrom             Like[]                 @relation("likesFrom")
   likesTo               Like[]                 @relation("likesTo")
@@ -71,6 +73,7 @@ model CommunityMembership {
   createdAt   DateTime         @default(now())
   community   Community        @relation(fields: [communityId], references: [id])
   user        User             @relation(fields: [userId], references: [id])
+  hostedGroupMeals GroupMeal[]  @relation("GroupMealHostMembership")
 
   @@unique([userId, communityId])
 }
@@ -119,6 +122,7 @@ model GroupMeal {
   id           String                 @id @default(uuid())
   communityId  String
   hostUserId   String
+  hostMembershipId String?
   title        String?
   date         DateTime
   weekday      Weekday
@@ -129,9 +133,37 @@ model GroupMeal {
   updatedAt    DateTime               @updatedAt
   budget       GroupMealBudget?
   meetingPlace String?                @db.VarChar(255)
+  meetingTimeMinutes Int?
+  placeName        String?
+  placeAddress     String?
+  placeLatitude    Float?
+  placeLongitude   Float?
+  placeGooglePlaceId String?
   community    Community              @relation(fields: [communityId], references: [id])
   host         User                   @relation("GroupMealHost", fields: [hostUserId], references: [id])
+  hostMembership CommunityMembership? @relation("GroupMealHostMembership", fields: [hostMembershipId], references: [id])
   participants GroupMealParticipant[]
+  candidates   GroupMealCandidate[]
+}
+
+model GroupMealCandidate {
+  id              String   @id @default(cuid())
+  groupMealId     String
+  userId          String
+  invitedByUserId String
+  invitedAt       DateTime @default(now())
+  isCanceled      Boolean  @default(false)
+  canceledAt      DateTime?
+  firstOpenedAt   DateTime?
+  lastOpenedAt    DateTime?
+
+  groupMeal       GroupMeal @relation(fields: [groupMealId], references: [id])
+  user            User      @relation("GroupMealCandidateUser", fields: [userId], references: [id])
+  invitedBy       User      @relation("GroupMealCandidateInviter", fields: [invitedByUserId], references: [id])
+
+  @@index([groupMealId])
+  @@index([userId])
+  @@unique([groupMealId, userId])
 }
 
 model GroupMealParticipant {
