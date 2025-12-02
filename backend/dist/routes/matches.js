@@ -48,6 +48,42 @@ matchesRouter.get('/', ensureSufficientAvailability, async (req, res) => {
     });
     res.json(data);
 });
+matchesRouter.get('/:matchId', async (req, res) => {
+    try {
+        const { matchId } = req.params;
+        const membership = await getApprovedMembership(req.user.userId);
+        if (!membership) {
+            return res.status(403).json({ message: 'Forbidden' });
+        }
+        const match = await prisma.match.findUnique({
+            where: { id: matchId },
+            include: {
+                user1: {
+                    include: {
+                        profile: true
+                    }
+                },
+                user2: {
+                    include: {
+                        profile: true
+                    }
+                },
+                pairMeals: {
+                    orderBy: { createdAt: 'desc' }
+                }
+            }
+        });
+        if (!match ||
+            (match.user1Id !== membership.userId && match.user2Id !== membership.userId)) {
+            return res.status(404).json({ message: 'Not found' });
+        }
+        return res.json({ match });
+    }
+    catch (err) {
+        console.error('GET MATCH DETAIL ERROR', err);
+        return res.status(500).json({ message: 'Internal server error' });
+    }
+});
 matchesRouter.post('/:matchId/pair-meals', async (req, res) => {
     try {
         const { matchId } = req.params;
