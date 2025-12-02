@@ -23,29 +23,31 @@ const pairMealScheduleSchema = z.object({
     .optional()
 });
 
+const nullableString = z.string().nullable().optional();
+
 const pairMealCreateFlatSchema = z.object({
   date: pairMealScheduleSchema.shape.date,
   timeBand: pairMealScheduleSchema.shape.timeBand,
   meetingTime: pairMealScheduleSchema.shape.meetingTime,
-  placeName: z.string().optional(),
-  placeAddress: z.string().optional(),
-  restaurantName: z.string().optional(),
-  restaurantAddress: z.string().optional(),
+  placeName: nullableString,
+  placeAddress: nullableString,
+  restaurantName: nullableString,
+  restaurantAddress: nullableString,
   latitude: z.number().nullable().optional(),
   longitude: z.number().nullable().optional(),
-  googlePlaceId: z.string().optional()
-});
+  googlePlaceId: nullableString
+}).passthrough();
 
 const pairMealCreateNestedSchema = z.object({
   schedule: pairMealScheduleSchema,
-  placeName: z.string().optional(),
-  placeAddress: z.string().optional(),
-  restaurantName: z.string().optional(),
-  restaurantAddress: z.string().optional(),
+  placeName: nullableString,
+  placeAddress: nullableString,
+  restaurantName: nullableString,
+  restaurantAddress: nullableString,
   latitude: z.number().nullable().optional(),
   longitude: z.number().nullable().optional(),
-  googlePlaceId: z.string().optional()
-});
+  googlePlaceId: nullableString
+}).passthrough();
 
 const pairMealUpdateSchema = pairMealCreateFlatSchema.partial();
 
