@@ -85,12 +85,13 @@ lineRouter.post('/group-meal-reminders', async (_req, res) => {
                     continue;
                 }
                 try {
+                    const placeLabel = gm.placeName ?? gm.meetingPlace ?? null;
                     await pushGroupMealReminderMessage({
                         lineUserId,
                         title: gm.title ?? 'GO飯',
                         date: gm.date,
                         timeSlot: gm.timeSlot,
-                        meetingPlace: gm.meetingPlace
+                        meetingPlace: placeLabel
                     });
                 }
                 catch (error) {
