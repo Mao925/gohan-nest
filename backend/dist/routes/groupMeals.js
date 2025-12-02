@@ -6,33 +6,62 @@ import { authMiddleware } from '../middleware/auth.js';
 import { getApprovedMembership } from '../utils/membership.js';
 import { pushGroupMealInviteNotification } from '../lib/lineMessages.js';
 const placeSchema = z.object({
-    name: z.string().trim().min(1),
-    address: z.string().trim().max(255).optional(),
-    latitude: z.number().optional(),
-    longitude: z.number().optional(),
-    googlePlaceId: z.string().trim().optional()
+    name: z.string().min(1),
+    address: z.string().nullable().optional(),
+    latitude: z.number().nullable().optional(),
+    longitude: z.number().nullable().optional(),
+    googlePlaceId: z.string().nullable().optional()
 });
+const budgetEnumSchema = z.enum([
+    'UNDER_1000',
+    'UNDER_1500',
+    'UNDER_2000',
+    'OVER_2000'
+]);
+const budgetInputSchema = z
+    .union([z.number().int(), budgetEnumSchema])
+    .nullable()
+    .optional();
 const scheduleTimeBandSchema = z.enum(['LUNCH', 'DINNER']);
-const scheduleCreateSchema = z.object({
-    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+const scheduleSchema = z.object({
+    date: z
+        .string()
+        // 'YYYY-MM-DD' 形式に限定する
+        .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be in YYYY-MM-DD format'),
     timeBand: scheduleTimeBandSchema,
-    meetingTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    // meetingTime は null も許容（フロントから null が来る可能性がある）
+    meetingTime: z
+        .string()
+        .regex(/^\d{2}:\d{2}$/, 'meetingTime must be HH:MM')
+        .nullable()
+        .optional(),
     place: placeSchema.optional()
+});
+// ① ネスト形式: { title, capacity, budget, schedule: { ... } }
+const createGroupMealNestedSchema = z.object({
+    title: z.string().optional().default(''),
+    capacity: z.number().int().positive(),
+    budget: budgetInputSchema,
+    schedule: scheduleSchema
+});
+// ② フラット形式: { title, date, timeBand, meetingTime, capacity, budget, place* }
+const createGroupMealFlatSchema = z.object({
+    title: z.string().optional().default(''),
+    date: scheduleSchema.shape.date,
+    timeBand: scheduleSchema.shape.timeBand,
+    meetingTime: scheduleSchema.shape.meetingTime,
+    capacity: z.number().int().positive(),
+    budget: budgetInputSchema,
+    placeName: z.string().optional(),
+    placeAddress: z.string().optional(),
+    latitude: z.number().nullable().optional(),
+    longitude: z.number().nullable().optional()
 });
 const scheduleUpdateSchema = z.object({
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     timeBand: scheduleTimeBandSchema.optional(),
     meetingTime: z.union([z.string().regex(/^\d{2}:\d{2}$/), z.null()]).optional(),
     place: placeSchema.nullable().optional()
-});
-const createGroupMealSchema = z.object({
-    title: z.string().trim().max(100).optional(),
-    schedule: scheduleCreateSchema.optional(),
-    date: z.string().datetime().optional(),
-    timeSlot: z.nativeEnum(TimeSlot).optional(),
-    meetingPlace: z.string().trim().max(255).optional(),
-    capacity: z.number().int().min(3).max(10),
-    budget: z.nativeEnum(GroupMealBudget).optional()
 });
 const updateGroupMealSchema = z.object({
     schedule: scheduleUpdateSchema.optional(),
@@ -89,49 +118,32 @@ function validateMeetingTime(minutes, timeBand) {
 function formatDateToIsoDay(date) {
     return date.toISOString().slice(0, 10);
 }
-function resolveScheduleForCreate(body) {
-    const schedule = body.schedule;
-    if (!schedule && (!body.date || !body.timeSlot)) {
-        throw new Error('schedule or date/timeSlot is required');
-    }
-    let date;
-    let timeSlot;
-    let timeBand;
-    if (schedule) {
-        date = parseScheduleDate(schedule.date);
-        timeBand = schedule.timeBand;
-        timeSlot = mapTimeBandToTimeSlot(timeBand);
-    }
-    else {
-        date = new Date(body.date);
-        if (Number.isNaN(date.getTime())) {
-            throw new Error('Invalid date');
+const BUDGET_ENUM_VALUES = [
+    'UNDER_1000',
+    'UNDER_1500',
+    'UNDER_2000',
+    'OVER_2000'
+];
+function mapBudgetValueToEnum(value) {
+    if (value == null)
+        return null;
+    if (typeof value === 'string') {
+        if (BUDGET_ENUM_VALUES.includes(value)) {
+            return value;
         }
-        timeSlot = body.timeSlot;
-        timeBand = mapTimeSlotToTimeBand(timeSlot);
+        const parsed = Number(value);
+        if (!Number.isNaN(parsed)) {
+            return mapBudgetValueToEnum(parsed);
+        }
+        return null;
     }
-    let meetingTimeMinutes = null;
-    if (schedule?.meetingTime) {
-        const minutes = parseTimeToMinutes(schedule.meetingTime);
-        validateMeetingTime(minutes, schedule.timeBand);
-        meetingTimeMinutes = minutes;
-    }
-    const placeInput = schedule?.place;
-    const fallbackPlace = body.meetingPlace ?? null;
-    const placeName = placeInput?.name ?? fallbackPlace;
-    return {
-        date,
-        weekday: getWeekdayFromDate(date),
-        timeSlot,
-        timeBand,
-        meetingTimeMinutes,
-        placeName,
-        placeAddress: placeInput?.address ?? null,
-        placeLatitude: placeInput?.latitude ?? null,
-        placeLongitude: placeInput?.longitude ?? null,
-        placeGooglePlaceId: placeInput?.googlePlaceId ?? null,
-        meetingPlace: fallbackPlace ?? placeInput?.name ?? null
-    };
+    if (value <= 1000)
+        return GroupMealBudget.UNDER_1000;
+    if (value <= 1500)
+        return GroupMealBudget.UNDER_1500;
+    if (value <= 2000)
+        return GroupMealBudget.UNDER_2000;
+    return GroupMealBudget.OVER_2000;
 }
 function membershipIsHost(membership, groupMeal) {
     if (!membership)
@@ -289,37 +301,81 @@ groupMealsRouter.post('/', async (req, res) => {
     if (!membership) {
         return res.status(400).json(membershipRequiredResponse);
     }
-    const parsed = createGroupMealSchema.safeParse(req.body);
+    let parsed = createGroupMealNestedSchema.safeParse(req.body);
     if (!parsed.success) {
-        return res.status(400).json({ message: 'Invalid input', issues: parsed.error.flatten() });
+        const flatResult = createGroupMealFlatSchema.safeParse(req.body);
+        if (!flatResult.success) {
+            console.error('CREATE GROUP MEAL INVALID BODY', {
+                body: req.body,
+                nestedError: parsed.error.format(),
+                flatError: flatResult.error.format()
+            });
+            return res.status(400).json({ message: 'Invalid input' });
+        }
+        const f = flatResult.data;
+        parsed = {
+            success: true,
+            data: {
+                title: f.title,
+                capacity: f.capacity,
+                budget: f.budget ?? null,
+                schedule: {
+                    date: f.date,
+                    timeBand: f.timeBand,
+                    meetingTime: f.meetingTime ?? null,
+                    place: f.placeName && f.placeName.trim().length > 0
+                        ? {
+                            name: f.placeName.trim(),
+                            address: f.placeAddress?.trim() || null,
+                            latitude: f.latitude ?? null,
+                            longitude: f.longitude ?? null,
+                            googlePlaceId: null
+                        }
+                        : undefined
+                }
+            }
+        };
     }
-    const body = parsed.data;
-    let schedule;
-    try {
-        schedule = resolveScheduleForCreate(body);
+    const { title, capacity, budget, schedule } = parsed.data;
+    const normalizedBudget = mapBudgetValueToEnum(budget ?? null);
+    const date = parseScheduleDate(schedule.date);
+    const weekday = getWeekdayFromDate(date);
+    const timeSlot = mapTimeBandToTimeSlot(schedule.timeBand);
+    const meetingTimeMinutes = schedule.meetingTime != null
+        ? (() => {
+            const [hours, minutes] = schedule.meetingTime.split(':').map(Number);
+            return hours * 60 + minutes;
+        })()
+        : null;
+    if (meetingTimeMinutes !== null) {
+        validateMeetingTime(meetingTimeMinutes, schedule.timeBand);
     }
-    catch (error) {
-        return res.status(400).json({ message: error.message });
-    }
+    const place = schedule.place;
+    const placeName = place?.name ?? null;
+    const placeAddress = place?.address ?? null;
+    const placeLatitude = place?.latitude ?? null;
+    const placeLongitude = place?.longitude ?? null;
+    const placeGooglePlaceId = place?.googlePlaceId ?? null;
+    const meetingPlace = placeName;
     try {
         const groupMeal = await prisma.groupMeal.create({
             data: {
                 communityId: membership.communityId,
                 hostUserId: req.user.userId,
                 hostMembershipId: membership.id,
-                title: body.title,
-                date: schedule.date,
-                weekday: schedule.weekday,
-                timeSlot: schedule.timeSlot,
-                capacity: body.capacity,
-                meetingPlace: schedule.meetingPlace,
-                meetingTimeMinutes: schedule.meetingTimeMinutes,
-                placeName: schedule.placeName,
-                placeAddress: schedule.placeAddress,
-                placeLatitude: schedule.placeLatitude,
-                placeLongitude: schedule.placeLongitude,
-                placeGooglePlaceId: schedule.placeGooglePlaceId,
-                budget: body.budget ?? null,
+                title,
+                date,
+                weekday,
+                timeSlot,
+                capacity,
+                meetingPlace,
+                meetingTimeMinutes,
+                placeName,
+                placeAddress,
+                placeLatitude,
+                placeLongitude,
+                placeGooglePlaceId,
+                budget: normalizedBudget,
                 participants: {
                     create: {
                         userId: req.user.userId,
@@ -333,8 +389,8 @@ groupMealsRouter.post('/', async (req, res) => {
         return res.status(201).json(buildGroupMealPayload(groupMeal, req.user.userId));
     }
     catch (error) {
-        console.error('CREATE GROUP MEAL ERROR:', error);
-        return res.status(500).json({ message: 'Failed to create group meal' });
+        console.error('CREATE GROUP MEAL ERROR', error);
+        return res.status(500).json({ message: 'Internal server error' });
     }
 });
 groupMealsRouter.patch('/:id', async (req, res) => {
@@ -553,32 +609,31 @@ groupMealsRouter.delete('/:id', async (req, res) => {
             .json({ message: 'Invalid group meal id', issues: parsedParams.error.flatten() });
     }
     const groupMealId = parsedParams.data.id;
-    const groupMeal = await prisma.groupMeal.findUnique({
-        where: { id: groupMealId },
-        include: { participants: true }
-    });
-    if (!groupMeal) {
-        return res.status(404).json({ message: 'Group meal not found' });
-    }
-    const isAdmin = req.user?.isAdmin;
-    const isHost = groupMeal.hostUserId === req.user.userId;
-    if (!isAdmin && !isHost) {
-        return res.status(403).json({ message: '削除できるのはホストまたは管理者のみです' });
+    const membership = await getApprovedMembership(req.user.userId);
+    if (!membership && !req.user?.isAdmin) {
+        return res.status(403).json({ message: 'Forbidden' });
     }
     try {
-        await prisma.$transaction(async (tx) => {
-            await tx.groupMealParticipant.deleteMany({
-                where: { groupMealId: groupMeal.id }
-            });
-            await tx.groupMeal.delete({
-                where: { id: groupMeal.id }
-            });
+        const groupMeal = await prisma.groupMeal.findUnique({
+            where: { id: groupMealId },
+            select: { id: true, hostMembershipId: true }
         });
+        if (!groupMeal) {
+            return res.status(404).json({ message: 'Group meal not found' });
+        }
+        if (!req.user?.isAdmin && groupMeal.hostMembershipId !== membership?.id) {
+            return res.status(403).json({ message: 'Forbidden' });
+        }
+        await prisma.$transaction([
+            prisma.groupMealCandidate.deleteMany({ where: { groupMealId } }),
+            prisma.groupMealParticipant.deleteMany({ where: { groupMealId } }),
+            prisma.groupMeal.delete({ where: { id: groupMealId } })
+        ]);
         return res.status(204).send();
     }
     catch (error) {
-        console.error('DELETE GROUP MEAL ERROR:', error);
-        return res.status(500).json({ message: 'Failed to delete group meal' });
+        console.error('DELETE GROUP MEAL ERROR', error);
+        return res.status(500).json({ message: 'Internal server error' });
     }
 });
 groupMealsRouter.get('/:id/candidates', async (req, res) => {

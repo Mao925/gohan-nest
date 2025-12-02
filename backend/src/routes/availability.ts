@@ -1,3 +1,4 @@
+import type { ParsedQs } from 'qs';
 import { Router } from 'express';
 import { z } from 'zod';
 import {
@@ -457,9 +458,12 @@ function mapAvailabilityStatusToCalendarStatus(status?: AvailabilityStatus): Cal
   return 'UNKNOWN';
 }
 
-function getStringQueryParam(value: string | string[] | undefined): string | undefined {
+function getStringQueryParam(
+  value: string | ParsedQs | (string | ParsedQs)[] | undefined
+): string | undefined {
   if (Array.isArray(value)) {
-    return value[0];
+    const first = value[0];
+    return typeof first === 'string' ? first : undefined;
   }
-  return value;
+  return typeof value === 'string' ? value : undefined;
 }
