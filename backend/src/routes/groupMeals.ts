@@ -24,6 +24,18 @@ const placeSchema = z.object({
   googlePlaceId: z.string().nullable().optional()
 });
 
+const budgetEnumSchema = z.enum([
+  'UNDER_1000',
+  'UNDER_1500',
+  'UNDER_2000',
+  'OVER_2000'
+]);
+
+const budgetInputSchema = z
+  .union([z.number().int(), budgetEnumSchema])
+  .nullable()
+  .optional();
+
 const scheduleTimeBandSchema = z.enum(['LUNCH', 'DINNER']);
 type ScheduleTimeBand = z.infer<typeof scheduleTimeBandSchema>;
 
@@ -46,7 +58,7 @@ const scheduleSchema = z.object({
 const createGroupMealNestedSchema = z.object({
   title: z.string().optional().default(''),
   capacity: z.number().int().positive(),
-  budget: z.number().int().nullable().optional(),
+  budget: budgetInputSchema,
   schedule: scheduleSchema
 });
 
@@ -57,7 +69,7 @@ const createGroupMealFlatSchema = z.object({
   timeBand: scheduleSchema.shape.timeBand,
   meetingTime: scheduleSchema.shape.meetingTime,
   capacity: z.number().int().positive(),
-  budget: z.number().int().nullable().optional(),
+  budget: budgetInputSchema,
   placeName: z.string().optional(),
   placeAddress: z.string().optional(),
   latitude: z.number().nullable().optional(),
@@ -141,21 +153,33 @@ function formatDateToIsoDay(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function mapBudgetValueToEnum(budget: number | null | undefined): GroupMealBudget | null {
-  if (budget == null) {
+const BUDGET_ENUM_VALUES = [
+  'UNDER_1000',
+  'UNDER_1500',
+  'UNDER_2000',
+  'OVER_2000'
+] as const;
+type BudgetEnumValue = (typeof BUDGET_ENUM_VALUES)[number];
+
+function mapBudgetValueToEnum(
+  value: number | BudgetEnumValue | null | undefined
+): GroupMealBudget | null {
+  if (value == null) return null;
+
+  if (typeof value === 'string') {
+    if (BUDGET_ENUM_VALUES.includes(value as BudgetEnumValue)) {
+      return value as GroupMealBudget;
+    }
+    const parsed = Number(value);
+    if (!Number.isNaN(parsed)) {
+      return mapBudgetValueToEnum(parsed);
+    }
     return null;
   }
 
-  if (budget <= 1000) {
-    return GroupMealBudget.UNDER_1000;
-  }
-  if (budget <= 1500) {
-    return GroupMealBudget.UNDER_1500;
-  }
-  if (budget <= 2000) {
-    return GroupMealBudget.UNDER_2000;
-  }
-
+  if (value <= 1000) return GroupMealBudget.UNDER_1000;
+  if (value <= 1500) return GroupMealBudget.UNDER_1500;
+  if (value <= 2000) return GroupMealBudget.UNDER_2000;
   return GroupMealBudget.OVER_2000;
 }
 
@@ -402,6 +426,7 @@ groupMealsRouter.post('/', async (req, res) => {
   }
 
   const { title, capacity, budget, schedule } = parsed.data;
+  const normalizedBudget = mapBudgetValueToEnum(budget ?? null);
 
   const date = parseScheduleDate(schedule.date);
   const weekday = getWeekdayFromDate(date);
@@ -445,7 +470,7 @@ groupMealsRouter.post('/', async (req, res) => {
         placeLatitude,
         placeLongitude,
         placeGooglePlaceId,
-        budget: mapBudgetValueToEnum(budget ?? null),
+        budget: normalizedBudget,
         participants: {
           create: {
             userId: req.user!.userId,
