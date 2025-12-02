@@ -1,6 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { AvailabilityStatus, TimeSlot, Weekday } from '@prisma/client';
+import {
+  AvailabilityStatus,
+  PairMealStatus,
+  ScheduleTimeBand,
+  TimeSlot,
+  Weekday
+} from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { ensureSameCommunity, getApprovedMembership } from '../utils/membership.js';
@@ -23,6 +29,32 @@ const overlapParamsSchema = z.object({
 });
 
 type OverlapSlotDto = { weekday: Weekday; timeSlot: TimeSlot };
+
+const calendarRangeSchema = z.object({
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
+});
+
+type CalendarSlotStatus = 'YES' | 'NO' | 'UNKNOWN';
+type CalendarGroupMeal = {
+  id: string;
+  title: string;
+  isHost: boolean;
+};
+type CalendarPairMeal = {
+  id: string;
+  matchId: string;
+  partnerName: string;
+};
+type CalendarAvailabilitySlot = {
+  date: string;
+  timeBand: ScheduleTimeBand;
+  status: CalendarSlotStatus;
+  groupMeals: CalendarGroupMeal[];
+  pairMeals: CalendarPairMeal[];
+  isBlockedByGroupMeal: boolean;
+  isBlockedByPairMeal: boolean;
+};
 
 export const availabilityRouter = Router();
 
@@ -54,6 +86,16 @@ availabilityRouter.get('/status', async (req, res) => {
 // この API はあくまで「曜日 x 昼夜」の週次パターンを管理するもの。
 // フロントエンドが「今日から7日間」を表示する場合も、日付→Weekdayに変換してこの週次APIを呼び出す。
 availabilityRouter.get('/', async (req, res) => {
+  const fromParam = getStringQueryParam(req.query.from);
+  const toParam = getStringQueryParam(req.query.to);
+  if (fromParam !== undefined || toParam !== undefined) {
+    const parsed = calendarRangeSchema.safeParse({ from: fromParam, to: toParam });
+    if (!parsed.success) {
+      return res.status(400).json({ message: 'Invalid date range', issues: parsed.error.flatten() });
+    }
+    return handleCalendarAvailability(req, res, parsed.data);
+  }
+
   try {
     const slots = await prisma.availabilitySlot.findMany({
       where: { userId: req.user!.userId },
@@ -196,3 +238,228 @@ availabilityRouter.get('/overlap/:partnerUserId', async (req, res) => {
     return res.status(500).json({ message: 'Failed to fetch overlap availability' });
   }
 });
+
+const DEFAULT_CALENDAR_WINDOW_DAYS = 6;
+const TIME_BANDS: ScheduleTimeBand[] = [ScheduleTimeBand.LUNCH, ScheduleTimeBand.DINNER];
+const WEEKDAY_FROM_INDEX: Weekday[] = [
+  Weekday.SUN,
+  Weekday.MON,
+  Weekday.TUE,
+  Weekday.WED,
+  Weekday.THU,
+  Weekday.FRI,
+  Weekday.SAT
+];
+const TIME_BAND_TO_TIME_SLOT: Record<ScheduleTimeBand, TimeSlot> = {
+  [ScheduleTimeBand.LUNCH]: TimeSlot.DAY,
+  [ScheduleTimeBand.DINNER]: TimeSlot.NIGHT
+};
+
+const slotKey = (date: string, timeBand: ScheduleTimeBand) => `${date}:${timeBand}`;
+
+async function handleCalendarAvailability(
+  req: any,
+  res: any,
+  range: z.infer<typeof calendarRangeSchema>
+) {
+  try {
+    const membership = await getApprovedMembership(req.user!.userId);
+    if (!membership) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    const { startDate, endDate } = resolveCalendarRange(range);
+    const dates = buildDateList(startDate, endDate);
+    const weekdays = Array.from(new Set(dates.map(getWeekdayFromDate)));
+
+    const availabilityEntries = await prisma.availabilitySlot.findMany({
+      where: {
+        userId: membership.userId,
+        weekday: { in: weekdays }
+      },
+      select: { weekday: true, timeSlot: true, status: true }
+    });
+
+    const availabilityMap = new Map<string, AvailabilityStatus>();
+    for (const entry of availabilityEntries) {
+      availabilityMap.set(`${entry.weekday}-${entry.timeSlot}`, entry.status);
+    }
+
+    const slotsMap = new Map<string, CalendarAvailabilitySlot>();
+    for (const date of dates) {
+      const dateString = formatDateToIsoDay(date);
+      const weekday = getWeekdayFromDate(date);
+      for (const timeBand of TIME_BANDS) {
+        const availabilityKey = `${weekday}-${TIME_BAND_TO_TIME_SLOT[timeBand]}`;
+        const status = mapAvailabilityStatusToCalendarStatus(availabilityMap.get(availabilityKey));
+        slotsMap.set(slotKey(dateString, timeBand), {
+          date: dateString,
+          timeBand,
+          status,
+          groupMeals: [],
+          pairMeals: [],
+          isBlockedByGroupMeal: false,
+          isBlockedByPairMeal: false
+        });
+      }
+    }
+
+    const groupMeals = await prisma.groupMeal.findMany({
+      where: {
+        communityId: membership.communityId,
+        date: { gte: startDate, lte: buildEndOfDay(endDate) },
+        participants: {
+          some: { userId: membership.userId }
+        }
+      },
+      include: {
+        participants: {
+          select: { userId: true, isHost: true }
+        }
+      }
+    });
+
+    for (const meal of groupMeals) {
+      const dateString = formatDateToIsoDay(meal.date);
+      const timeBand = mapTimeSlotToScheduleBand(meal.timeSlot);
+      const slot = slotsMap.get(slotKey(dateString, timeBand));
+      if (!slot) {
+        continue;
+      }
+
+      const participant = meal.participants.find((p) => p.userId === membership.userId);
+      const isHost =
+        meal.hostMembershipId === membership.id ||
+        meal.hostUserId === membership.userId ||
+        participant?.isHost === true;
+
+      slot.groupMeals.push({
+        id: meal.id,
+        title: meal.title ?? '',
+        isHost
+      });
+      slot.isBlockedByGroupMeal = true;
+      slot.status = 'NO';
+    }
+
+    const pairMeals = await prisma.pairMeal.findMany({
+      where: {
+        status: PairMealStatus.CONFIRMED,
+        date: {
+          gte: formatDateToIsoDay(startDate),
+          lte: formatDateToIsoDay(endDate)
+        },
+        OR: [{ memberAId: membership.id }, { memberBId: membership.id }]
+      },
+      include: {
+        match: {
+          include: {
+            user1: { include: { profile: true } },
+            user2: { include: { profile: true } }
+          }
+        }
+      }
+    });
+
+    for (const pairMeal of pairMeals) {
+      const slot = slotsMap.get(slotKey(pairMeal.date, pairMeal.timeBand));
+      if (!slot || !pairMeal.match) {
+        continue;
+      }
+
+      const isUser1 = pairMeal.match.user1Id === membership.userId;
+      const partner = isUser1 ? pairMeal.match.user2 : pairMeal.match.user1;
+      const partnerName = partner?.profile?.name ?? partner?.lineDisplayName ?? '';
+      slot.pairMeals.push({
+        id: pairMeal.id,
+        matchId: pairMeal.matchId,
+        partnerName
+      });
+      slot.isBlockedByPairMeal = true;
+      slot.status = 'NO';
+    }
+
+    return res.json({ slots: Array.from(slotsMap.values()) });
+  } catch (error: any) {
+    if (error instanceof CalendarRangeError) {
+      return res.status(400).json({ message: error.message });
+    }
+    console.error('FETCH CALENDAR AVAILABILITY ERROR:', error);
+    return res.status(500).json({ message: 'Failed to fetch calendar availability' });
+  }
+}
+
+class CalendarRangeError extends Error {}
+
+function resolveCalendarRange(range: z.infer<typeof calendarRangeSchema>) {
+  const startDate = range.from ? parseIsoDay(range.from) : getTodayUtcDate();
+  const endDate = range.to ? parseIsoDay(range.to) : addDays(startDate, DEFAULT_CALENDAR_WINDOW_DAYS);
+  if (endDate.getTime() < startDate.getTime()) {
+    throw new CalendarRangeError('`to` must be on or after `from`');
+  }
+  return { startDate, endDate };
+}
+
+function buildDateList(startDate: Date, endDate: Date): Date[] {
+  const dates: Date[] = [];
+  let current = new Date(startDate);
+  while (current.getTime() <= endDate.getTime()) {
+    dates.push(new Date(current));
+    current = addDays(current, 1);
+  }
+  return dates;
+}
+
+function addDays(date: Date, days: number): Date {
+  const result = new Date(date);
+  result.setUTCDate(result.getUTCDate() + days);
+  return result;
+}
+
+function parseIsoDay(value: string): Date {
+  const [year, month, day] = value.split('-').map(Number);
+  if ([year, month, day].some((part) => Number.isNaN(part))) {
+    throw new CalendarRangeError('Invalid date');
+  }
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function getTodayUtcDate(): Date {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
+function formatDateToIsoDay(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function buildEndOfDay(date: Date): Date {
+  const result = new Date(date);
+  result.setUTCHours(23, 59, 59, 999);
+  return result;
+}
+
+function getWeekdayFromDate(date: Date): Weekday {
+  return WEEKDAY_FROM_INDEX[date.getUTCDay()];
+}
+
+function mapTimeSlotToScheduleBand(timeSlot: TimeSlot): ScheduleTimeBand {
+  return timeSlot === TimeSlot.DAY ? ScheduleTimeBand.LUNCH : ScheduleTimeBand.DINNER;
+}
+
+function mapAvailabilityStatusToCalendarStatus(status?: AvailabilityStatus): CalendarSlotStatus {
+  if (status === AvailabilityStatus.AVAILABLE) {
+    return 'YES';
+  }
+  if (status === AvailabilityStatus.UNAVAILABLE) {
+    return 'NO';
+  }
+  return 'UNKNOWN';
+}
+
+function getStringQueryParam(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+  return value;
+}
