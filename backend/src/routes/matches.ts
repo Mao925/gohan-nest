@@ -9,20 +9,49 @@ import { getApprovedMembership } from '../utils/membership.js';
 export const matchesRouter = Router();
 matchesRouter.use(authMiddleware);
 
-const pairMealCreateSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  timeBand: z.enum(['LUNCH', 'DINNER']),
-  meetingTime: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
-  placeName: z.string().optional(),
-  placeAddress: z.string().optional(),
-  restaurantName: z.string().optional(),
-  restaurantAddress: z.string().optional(),
-  latitude: z.number().nullable().optional(),
-  longitude: z.number().nullable().optional(),
-  googlePlaceId: z.string().optional()
+const pairMealScheduleSchema = z.object({
+  date: z.string(),
+  timeBand: z.union([
+    z.enum(['LUNCH', 'DINNER']),
+    z.literal('昼'),
+    z.literal('夜')
+  ]),
+  meetingTime: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/)
+    .nullable()
+    .optional()
 });
 
-const pairMealUpdateSchema = pairMealCreateSchema.partial();
+const pairMealCreateFlatSchema = z
+  .object({
+    date: pairMealScheduleSchema.shape.date,
+    timeBand: pairMealScheduleSchema.shape.timeBand,
+    meetingTime: pairMealScheduleSchema.shape.meetingTime,
+    placeName: z.string().optional(),
+    placeAddress: z.string().optional(),
+    restaurantName: z.string().optional(),
+    restaurantAddress: z.string().optional(),
+    latitude: z.number().nullable().optional(),
+    longitude: z.number().nullable().optional(),
+    googlePlaceId: z.string().optional()
+  })
+  .strict(false);
+
+const pairMealCreateNestedSchema = z
+  .object({
+    schedule: pairMealScheduleSchema,
+    placeName: z.string().optional(),
+    placeAddress: z.string().optional(),
+    restaurantName: z.string().optional(),
+    restaurantAddress: z.string().optional(),
+    latitude: z.number().nullable().optional(),
+    longitude: z.number().nullable().optional(),
+    googlePlaceId: z.string().optional()
+  })
+  .strict(false);
+
+const pairMealUpdateSchema = pairMealCreateFlatSchema.partial();
 
 matchesRouter.get('/', ensureSufficientAvailability, async (req, res) => {
   const membership = await getApprovedMembership(req.user!.userId);
@@ -100,13 +129,35 @@ matchesRouter.get('/:matchId', async (req, res) => {
 matchesRouter.post('/:matchId/pair-meals', async (req, res) => {
   try {
     const { matchId } = req.params;
-    const parsed = pairMealCreateSchema.safeParse(req.body);
-    if (!parsed.success) {
-      console.error('CREATE PAIR MEAL INVALID BODY', parsed.error.format());
-      return res.status(400).json({ message: 'Invalid input' });
+    let flatResult = pairMealCreateFlatSchema.safeParse(req.body);
+
+    if (!flatResult.success) {
+      const nestedResult = pairMealCreateNestedSchema.safeParse(req.body);
+
+      if (!nestedResult.success) {
+        console.error('CREATE PAIR MEAL INVALID BODY', {
+          body: req.body,
+          flatError: flatResult.error.format(),
+          nestedError: nestedResult.error.format()
+        });
+        return res.status(400).json({ message: 'Invalid input' });
+      }
+
+      const { schedule, ...rest } = nestedResult.data;
+      flatResult = {
+        success: true,
+        data: {
+          date: schedule.date,
+          timeBand: schedule.timeBand,
+          meetingTime: schedule.meetingTime ?? null,
+          ...rest
+        }
+      } as const;
     }
 
-    const payload = parsed.data;
+    const payload = flatResult.data;
+    const normalizedTimeBand = normalizeTimeBand(payload.timeBand);
+    const meetingTimeMinutes = parseMeetingTimeToMinutes(payload.meetingTime ?? null);
     const membership = await getApprovedMembership(req.user!.userId);
     if (!membership) {
       return res.status(403).json({ message: 'Forbidden' });
@@ -146,17 +197,13 @@ matchesRouter.post('/:matchId/pair-meals', async (req, res) => {
         .json({ message: 'Both match members must have approved community memberships' });
     }
 
-    const meetingTimeMinutes = payload.meetingTime
-      ? parseMeetingTimeToMinutes(payload.meetingTime)
-      : null;
-
     const pairMeal = await prisma.pairMeal.create({
       data: {
         matchId: match.id,
         memberAId: memberA.id,
         memberBId: memberB.id,
         date: payload.date,
-        timeBand: payload.timeBand,
+        timeBand: normalizedTimeBand,
         meetingTimeMinutes,
         placeName: payload.placeName != null ? payload.placeName.trim() : null,
         placeAddress: payload.placeAddress != null ? payload.placeAddress.trim() : null,
@@ -214,11 +261,15 @@ matchesRouter.patch('/:matchId/pair-meals/:pairMealId', async (req, res) => {
         payload.meetingTime === null ? null : parseMeetingTimeToMinutes(payload.meetingTime);
     }
 
+    const normalizedUpdateTimeBand = payload.timeBand
+      ? normalizeTimeBand(payload.timeBand)
+      : undefined;
+
     const updated = await prisma.pairMeal.update({
       where: { id: pairMealId },
       data: {
         date: payload.date ?? pairMeal.date,
-        timeBand: payload.timeBand ?? pairMeal.timeBand,
+        timeBand: normalizedUpdateTimeBand ?? pairMeal.timeBand,
         meetingTimeMinutes,
         placeName:
           payload.placeName != null ? payload.placeName.trim() : pairMeal.placeName,
@@ -293,4 +344,10 @@ function parseMeetingTimeToMinutes(value: string | null | undefined): number | n
     return null;
   }
   return hours * 60 + minutes;
+}
+
+function normalizeTimeBand(value: string): 'LUNCH' | 'DINNER' {
+  if (value === '昼') return 'LUNCH';
+  if (value === '夜') return 'DINNER';
+  return value as 'LUNCH' | 'DINNER';
 }
