@@ -17,21 +17,51 @@ import { pushGroupMealInviteNotification } from '../lib/lineMessages.js';
 type ApprovedMembership = NonNullable<Awaited<ReturnType<typeof getApprovedMembership>>>;
 
 const placeSchema = z.object({
-  name: z.string().trim().min(1),
-  address: z.string().trim().max(255).optional(),
-  latitude: z.number().optional(),
-  longitude: z.number().optional(),
-  googlePlaceId: z.string().trim().optional()
+  name: z.string().min(1),
+  address: z.string().nullable().optional(),
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional(),
+  googlePlaceId: z.string().nullable().optional()
 });
 
 const scheduleTimeBandSchema = z.enum(['LUNCH', 'DINNER']);
 type ScheduleTimeBand = z.infer<typeof scheduleTimeBandSchema>;
 
-const scheduleCreateSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+const scheduleSchema = z.object({
+  date: z
+    .string()
+    // 'YYYY-MM-DD' 形式に限定する
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be in YYYY-MM-DD format'),
   timeBand: scheduleTimeBandSchema,
-  meetingTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+  // meetingTime は null も許容（フロントから null が来る可能性がある）
+  meetingTime: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/, 'meetingTime must be HH:MM')
+    .nullable()
+    .optional(),
   place: placeSchema.optional()
+});
+
+// ① ネスト形式: { title, capacity, budget, schedule: { ... } }
+const createGroupMealNestedSchema = z.object({
+  title: z.string().optional().default(''),
+  capacity: z.number().int().positive(),
+  budget: z.number().int().nullable().optional(),
+  schedule: scheduleSchema
+});
+
+// ② フラット形式: { title, date, timeBand, meetingTime, capacity, budget, place* }
+const createGroupMealFlatSchema = z.object({
+  title: z.string().optional().default(''),
+  date: scheduleSchema.shape.date,
+  timeBand: scheduleSchema.shape.timeBand,
+  meetingTime: scheduleSchema.shape.meetingTime,
+  capacity: z.number().int().positive(),
+  budget: z.number().int().nullable().optional(),
+  placeName: z.string().optional(),
+  placeAddress: z.string().optional(),
+  latitude: z.number().nullable().optional(),
+  longitude: z.number().nullable().optional()
 });
 
 const scheduleUpdateSchema = z.object({
@@ -40,17 +70,6 @@ const scheduleUpdateSchema = z.object({
   meetingTime: z.union([z.string().regex(/^\d{2}:\d{2}$/), z.null()]).optional(),
   place: placeSchema.nullable().optional()
 });
-
-const createGroupMealSchema = z.object({
-  title: z.string().trim().max(100).optional(),
-  schedule: scheduleCreateSchema.optional(),
-  date: z.string().datetime().optional(),
-  timeSlot: z.nativeEnum(TimeSlot).optional(),
-  meetingPlace: z.string().trim().max(255).optional(),
-  capacity: z.number().int().min(3).max(10),
-  budget: z.nativeEnum(GroupMealBudget).optional()
-});
-type CreateGroupMealInput = z.infer<typeof createGroupMealSchema>;
 
 const updateGroupMealSchema = z.object({
   schedule: scheduleUpdateSchema.optional(),
@@ -122,67 +141,22 @@ function formatDateToIsoDay(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-type CreateScheduleResolution = {
-  date: Date;
-  weekday: Weekday;
-  timeSlot: TimeSlot;
-  timeBand: ScheduleTimeBand;
-  meetingTimeMinutes: number | null;
-  placeName: string | null;
-  placeAddress: string | null;
-  placeLatitude: number | null;
-  placeLongitude: number | null;
-  placeGooglePlaceId: string | null;
-  meetingPlace: string | null;
-};
-
-function resolveScheduleForCreate(body: CreateGroupMealInput): CreateScheduleResolution {
-  const schedule = body.schedule;
-  if (!schedule && (!body.date || !body.timeSlot)) {
-    throw new Error('schedule or date/timeSlot is required');
+function mapBudgetValueToEnum(budget: number | null | undefined): GroupMealBudget | null {
+  if (budget == null) {
+    return null;
   }
 
-  let date: Date;
-  let timeSlot: TimeSlot;
-  let timeBand: ScheduleTimeBand;
-
-  if (schedule) {
-    date = parseScheduleDate(schedule.date);
-    timeBand = schedule.timeBand;
-    timeSlot = mapTimeBandToTimeSlot(timeBand);
-  } else {
-    date = new Date(body.date!);
-    if (Number.isNaN(date.getTime())) {
-      throw new Error('Invalid date');
-    }
-    timeSlot = body.timeSlot!;
-    timeBand = mapTimeSlotToTimeBand(timeSlot);
+  if (budget <= 1000) {
+    return GroupMealBudget.UNDER_1000;
+  }
+  if (budget <= 1500) {
+    return GroupMealBudget.UNDER_1500;
+  }
+  if (budget <= 2000) {
+    return GroupMealBudget.UNDER_2000;
   }
 
-  let meetingTimeMinutes: number | null = null;
-  if (schedule?.meetingTime) {
-    const minutes = parseTimeToMinutes(schedule.meetingTime);
-    validateMeetingTime(minutes, schedule.timeBand);
-    meetingTimeMinutes = minutes;
-  }
-
-  const placeInput = schedule?.place;
-  const fallbackPlace = body.meetingPlace ?? null;
-  const placeName = placeInput?.name ?? fallbackPlace;
-
-  return {
-    date,
-    weekday: getWeekdayFromDate(date),
-    timeSlot,
-    timeBand,
-    meetingTimeMinutes,
-    placeName,
-    placeAddress: placeInput?.address ?? null,
-    placeLatitude: placeInput?.latitude ?? null,
-    placeLongitude: placeInput?.longitude ?? null,
-    placeGooglePlaceId: placeInput?.googlePlaceId ?? null,
-    meetingPlace: fallbackPlace ?? placeInput?.name ?? null
-  };
+  return GroupMealBudget.OVER_2000;
 }
 
 function membershipIsHost(
@@ -388,18 +362,70 @@ groupMealsRouter.post('/', async (req, res) => {
     return res.status(400).json(membershipRequiredResponse);
   }
 
-  const parsed = createGroupMealSchema.safeParse(req.body);
+  let parsed = createGroupMealNestedSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ message: 'Invalid input', issues: parsed.error.flatten() });
+    const flatResult = createGroupMealFlatSchema.safeParse(req.body);
+
+    if (!flatResult.success) {
+      console.error('CREATE GROUP MEAL INVALID BODY', {
+        body: req.body,
+        nestedError: parsed.error.format(),
+        flatError: flatResult.error.format()
+      });
+      return res.status(400).json({ message: 'Invalid input' });
+    }
+
+    const f = flatResult.data;
+    parsed = {
+      success: true,
+      data: {
+        title: f.title,
+        capacity: f.capacity,
+        budget: f.budget ?? null,
+        schedule: {
+          date: f.date,
+          timeBand: f.timeBand,
+          meetingTime: f.meetingTime ?? null,
+          place:
+            f.placeName && f.placeName.trim().length > 0
+              ? {
+                  name: f.placeName.trim(),
+                  address: f.placeAddress?.trim() || null,
+                  latitude: f.latitude ?? null,
+                  longitude: f.longitude ?? null,
+                  googlePlaceId: null
+                }
+              : undefined
+        }
+      }
+    } as const;
   }
 
-  const body = parsed.data as CreateGroupMealInput;
-  let schedule: CreateScheduleResolution;
-  try {
-    schedule = resolveScheduleForCreate(body);
-  } catch (error: any) {
-    return res.status(400).json({ message: error.message });
+  const { title, capacity, budget, schedule } = parsed.data;
+
+  const date = parseScheduleDate(schedule.date);
+  const weekday = getWeekdayFromDate(date);
+  const timeSlot = mapTimeBandToTimeSlot(schedule.timeBand);
+
+  const meetingTimeMinutes =
+    schedule.meetingTime != null
+      ? (() => {
+          const [hours, minutes] = schedule.meetingTime.split(':').map(Number);
+          return hours * 60 + minutes;
+        })()
+      : null;
+
+  if (meetingTimeMinutes !== null) {
+    validateMeetingTime(meetingTimeMinutes, schedule.timeBand);
   }
+
+  const place = schedule.place;
+  const placeName = place?.name ?? null;
+  const placeAddress = place?.address ?? null;
+  const placeLatitude = place?.latitude ?? null;
+  const placeLongitude = place?.longitude ?? null;
+  const placeGooglePlaceId = place?.googlePlaceId ?? null;
+  const meetingPlace = placeName;
 
   try {
     const groupMeal = await prisma.groupMeal.create({
@@ -407,19 +433,19 @@ groupMealsRouter.post('/', async (req, res) => {
         communityId: membership.communityId,
         hostUserId: req.user!.userId,
         hostMembershipId: membership.id,
-        title: body.title,
-        date: schedule.date,
-        weekday: schedule.weekday,
-        timeSlot: schedule.timeSlot,
-        capacity: body.capacity,
-        meetingPlace: schedule.meetingPlace,
-        meetingTimeMinutes: schedule.meetingTimeMinutes,
-        placeName: schedule.placeName,
-        placeAddress: schedule.placeAddress,
-        placeLatitude: schedule.placeLatitude,
-        placeLongitude: schedule.placeLongitude,
-        placeGooglePlaceId: schedule.placeGooglePlaceId,
-        budget: body.budget ?? null,
+        title,
+        date,
+        weekday,
+        timeSlot,
+        capacity,
+        meetingPlace,
+        meetingTimeMinutes,
+        placeName,
+        placeAddress,
+        placeLatitude,
+        placeLongitude,
+        placeGooglePlaceId,
+        budget: mapBudgetValueToEnum(budget ?? null),
         participants: {
           create: {
             userId: req.user!.userId,
@@ -433,8 +459,8 @@ groupMealsRouter.post('/', async (req, res) => {
 
     return res.status(201).json(buildGroupMealPayload(groupMeal, req.user!.userId));
   } catch (error: any) {
-    console.error('CREATE GROUP MEAL ERROR:', error);
-    return res.status(500).json({ message: 'Failed to create group meal' });
+    console.error('CREATE GROUP MEAL ERROR', error);
+    return res.status(500).json({ message: 'Internal server error' });
   }
 });
 
