@@ -36,7 +36,7 @@ const pairMealCreateFlatSchema = z.object({
   latitude: z.number().nullable().optional(),
   longitude: z.number().nullable().optional(),
   googlePlaceId: nullableString
-}).strict(false);
+}).passthrough();
 
 const pairMealCreateNestedSchema = z.object({
   schedule: pairMealScheduleSchema,
@@ -47,7 +47,7 @@ const pairMealCreateNestedSchema = z.object({
   latitude: z.number().nullable().optional(),
   longitude: z.number().nullable().optional(),
   googlePlaceId: nullableString
-}).strict(false);
+}).passthrough();
 
 const pairMealUpdateSchema = pairMealCreateFlatSchema.partial();
 
