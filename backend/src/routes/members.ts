@@ -5,6 +5,16 @@ import { getApprovedMembership } from '../utils/membership.js';
 import { buildRelationshipResponse, type RelationshipResponse } from '../utils/relationships.js';
 import { countUserAvailableSlots, MIN_REQUIRED_AVAILABILITY } from '../utils/availability.js';
 
+type MembersApiResponseItem = {
+  id: string;
+  name: string | null;
+  favoriteMeals: string[];
+  profileImageUrl: string | null;
+  myLikeStatus: 'YES' | 'NO';
+  isMutualLike: boolean;
+  matchId: string | null;
+};
+
 export const membersRouter = Router();
 
 membersRouter.use(authMiddleware);
@@ -57,12 +67,33 @@ membersRouter.get('/', async (req, res) => {
     const myLikeMap = new Map(likesFromMe.map((like) => [like.toUserId, like]));
     const reverseLikeMap = new Map(likesToMe.map((like) => [like.fromUserId, like]));
 
-    const members = otherMembers.map((membership) => {
+    const matchesBetweenMembers =
+      memberUserIds.length === 0
+        ? []
+        : await prisma.match.findMany({
+            where: {
+              communityId: membership.communityId,
+              OR: [
+                { user1Id: userId, user2Id: { in: memberUserIds } },
+                { user2Id: userId, user1Id: { in: memberUserIds } }
+              ]
+            },
+            select: { id: true, user1Id: true, user2Id: true }
+          });
+
+    const matchByPartnerId = new Map<string, string>();
+    for (const match of matchesBetweenMembers) {
+      const partnerId = match.user1Id === userId ? match.user2Id : match.user1Id;
+      matchByPartnerId.set(partnerId, match.id);
+    }
+
+    const members: MembersApiResponseItem[] = otherMembers.map((membership) => {
       const profile = membership.user.profile;
       const myLike = myLikeMap.get(membership.user.id);
       const partnerLike = reverseLikeMap.get(membership.user.id);
       const myLikeStatus = myLike?.answer === 'YES' ? 'YES' : 'NO';
       const isMutualLike = myLikeStatus === 'YES' && partnerLike?.answer === 'YES';
+      const matchId = matchByPartnerId.get(membership.user.id) ?? null;
 
       return {
         id: membership.user.id,
@@ -70,11 +101,12 @@ membersRouter.get('/', async (req, res) => {
         favoriteMeals: profile?.favoriteMeals ?? [],
         profileImageUrl: profile?.profileImageUrl ?? null,
         myLikeStatus,
-        isMutualLike
+        isMutualLike,
+        matchId
       };
     });
 
-    const safeMembers = meetsAvailabilityRequirement
+    const safeMembers: MembersApiResponseItem[] = meetsAvailabilityRequirement
       ? members
       : members.map((member) => ({
           ...member,
