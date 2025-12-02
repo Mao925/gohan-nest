@@ -75,6 +75,9 @@ model CommunityMembership {
   community   Community        @relation(fields: [communityId], references: [id])
   user        User             @relation(fields: [userId], references: [id])
   hostedGroupMeals GroupMeal[]  @relation("GroupMealHostMembership")
+  pairMealsAsMemberA PairMeal[] @relation("PairMealMemberA")
+  pairMealsAsMemberB PairMeal[] @relation("PairMealMemberB")
+  pairMealsCreated PairMeal[] @relation("PairMealCreator")
 
   @@unique([userId, communityId])
 }
@@ -102,8 +105,39 @@ model Match {
   community   Community @relation(fields: [communityId], references: [id])
   user1       User      @relation("user1", fields: [user1Id], references: [id])
   user2       User      @relation("user2", fields: [user2Id], references: [id])
+  pairMeals   PairMeal[]
 
   @@unique([user1Id, user2Id, communityId])
+}
+
+model PairMeal {
+  id                 String             @id @default(cuid())
+  match              Match              @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  matchId            String
+
+  memberA            CommunityMembership @relation("PairMealMemberA", fields: [memberAId], references: [id])
+  memberAId          String
+  memberB            CommunityMembership @relation("PairMealMemberB", fields: [memberBId], references: [id])
+  memberBId          String
+
+  date               String
+  timeBand           ScheduleTimeBand
+  meetingTimeMinutes Int?
+
+  placeName          String?
+  placeAddress       String?
+  placeLatitude      Float?
+  placeLongitude     Float?
+  placeGooglePlaceId String?
+
+  restaurantName     String?
+  restaurantAddress  String?
+
+  status             PairMealStatus     @default(CONFIRMED)
+  createdBy          CommunityMembership @relation("PairMealCreator", fields: [createdByMemberId], references: [id])
+  createdByMemberId  String
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 }
 
 model AvailabilitySlot {
@@ -205,6 +239,16 @@ enum Weekday {
 enum TimeSlot {
   DAY
   NIGHT
+}
+
+enum ScheduleTimeBand {
+  LUNCH
+  DINNER
+}
+
+enum PairMealStatus {
+  CONFIRMED
+  CANCELLED
 }
 
 enum AvailabilityStatus {
