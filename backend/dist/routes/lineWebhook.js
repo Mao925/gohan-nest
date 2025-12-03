@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import { AvailabilityStatus, TimeSlot } from '@prisma/client';
+import { AvailabilityStatus, GroupMealParticipantStatus, TimeSlot } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { LINE_MESSAGING_CHANNEL_ACCESS_TOKEN, LINE_MESSAGING_CHANNEL_SECRET } from '../config.js';
 import { getTodayWeekdayInJst } from '../utils/date.js';
@@ -75,45 +75,99 @@ lineWebhookRouter.post('/', async (req, res) => {
             continue;
         }
         const postbackData = event.postback?.data ?? '';
-        const [prefix, timeSlotRaw, statusRaw] = postbackData.split(':');
-        if (prefix !== 'availability') {
-            continue;
-        }
-        if (!['DAY', 'NIGHT'].includes(timeSlotRaw) ||
-            !['AVAILABLE', 'UNAVAILABLE'].includes(statusRaw)) {
-            continue;
-        }
-        const userLineId = event.source?.userId;
-        const replyToken = event.replyToken;
-        if (!userLineId || !replyToken) {
-            continue;
-        }
-        const user = await prisma.user.findUnique({
-            where: { lineUserId: userLineId },
-            select: { id: true }
-        });
-        if (!user) {
-            continue;
-        }
-        const weekday = getTodayWeekdayInJst();
-        const timeSlot = timeSlotRaw;
-        const status = statusRaw;
-        try {
-            await prisma.availabilitySlot.upsert({
-                where: { userId_weekday_timeSlot: { userId: user.id, weekday, timeSlot } },
-                create: { userId: user.id, weekday, timeSlot, status },
-                update: { status }
-            });
-            const slotLabel = timeSlot === TimeSlot.DAY ? '昼ごはん' : '夜ごはん';
-            const statusLabel = status === AvailabilityStatus.AVAILABLE ? '空いている' : '空いていない';
-            await replyToLine(replyToken, `今日の${slotLabel}: ${statusLabel} を登録しました`);
-            if (timeSlot === TimeSlot.DAY) {
-                await sendDinnerAvailabilityMessage(userLineId);
+        if (postbackData.startsWith('availability:')) {
+            const [, timeSlotRaw, statusRaw] = postbackData.split(':');
+            if (!['DAY', 'NIGHT'].includes(timeSlotRaw) ||
+                !['AVAILABLE', 'UNAVAILABLE', 'MEET_ONLY'].includes(statusRaw)) {
+                continue;
             }
+            const userLineId = event.source?.userId;
+            const replyToken = event.replyToken;
+            if (!userLineId || !replyToken) {
+                continue;
+            }
+            const user = await prisma.user.findUnique({
+                where: { lineUserId: userLineId },
+                select: { id: true }
+            });
+            if (!user) {
+                continue;
+            }
+            const weekday = getTodayWeekdayInJst();
+            const timeSlot = timeSlotRaw;
+            const status = statusRaw;
+            try {
+                await prisma.availabilitySlot.upsert({
+                    where: { userId_weekday_timeSlot: { userId: user.id, weekday, timeSlot } },
+                    create: { userId: user.id, weekday, timeSlot, status },
+                    update: { status }
+                });
+                const slotLabel = timeSlot === TimeSlot.DAY ? '昼ごはん' : '夜ごはん';
+                const statusLabel = status === AvailabilityStatus.AVAILABLE
+                    ? '空いている'
+                    : status === AvailabilityStatus.MEET_ONLY
+                        ? 'Meetのみ'
+                        : '空いていない';
+                await replyToLine(replyToken, `今日の${slotLabel}: ${statusLabel} を登録しました`);
+                if (timeSlot === TimeSlot.DAY) {
+                    await sendDinnerAvailabilityMessage(userLineId);
+                }
+            }
+            catch (error) {
+                console.error('Failed to upsert availability from LINE', { error });
+                await replyToLine(replyToken, '今日の予定を記録できませんでした。あとでもう一度試してください');
+            }
+            continue;
         }
-        catch (error) {
-            console.error('Failed to upsert availability from LINE', { error });
-            await replyToLine(replyToken, '今日の予定を記録できませんでした。あとでもう一度試してください');
+        let payload = null;
+        try {
+            payload = JSON.parse(postbackData);
+        }
+        catch {
+            payload = null;
+        }
+        if (payload?.type === 'REAL_GROUP_MEAL_INVITE' ||
+            payload?.type === 'MEET_GROUP_MEAL_INVITE') {
+            const { groupMealId, action } = payload;
+            const userLineId = event.source?.userId;
+            const replyToken = event.replyToken;
+            if (!userLineId || !replyToken) {
+                continue;
+            }
+            const user = await prisma.user.findUnique({
+                where: { lineUserId: userLineId },
+                select: { id: true }
+            });
+            if (!user) {
+                continue;
+            }
+            const participant = await prisma.groupMealParticipant.findFirst({
+                where: {
+                    groupMealId,
+                    userId: user.id
+                }
+            });
+            if (!participant) {
+                continue;
+            }
+            const newStatus = action === 'GO'
+                ? GroupMealParticipantStatus.GO
+                : action === 'NOT_GO'
+                    ? GroupMealParticipantStatus.NOT_GO
+                    : GroupMealParticipantStatus.PENDING;
+            if (newStatus !== participant.status) {
+                await prisma.groupMealParticipant.update({
+                    where: { id: participant.id },
+                    data: { status: newStatus }
+                });
+            }
+            const replyText = newStatus === GroupMealParticipantStatus.GO
+                ? '参加ステータスを「行く」に更新しました！'
+                : newStatus === GroupMealParticipantStatus.NOT_GO
+                    ? '参加ステータスを「行かない」に更新しました。'
+                    : '参加ステータスを更新しました。';
+            await replyToLine(replyToken, replyText);
+            continue;
         }
     }
     return res.sendStatus(200);

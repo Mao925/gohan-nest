@@ -27,13 +27,18 @@ function buildAvailabilityTemplate(timeSlot) {
             actions: [
                 {
                     type: 'postback',
-                    label: '✅ 行ける',
+                    label: '○（リアル＆Meet可）',
                     data: `${dataPrefix}:AVAILABLE`
                 },
                 {
                     type: 'postback',
-                    label: '❌ 行けない',
+                    label: '✕（参加不可）',
                     data: `${dataPrefix}:UNAVAILABLE`
+                },
+                {
+                    type: 'postback',
+                    label: '△（Meetのみ可）',
+                    data: `${dataPrefix}:MEET_ONLY`
                 }
             ]
         }

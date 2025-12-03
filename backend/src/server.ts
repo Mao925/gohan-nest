@@ -31,6 +31,7 @@ import { availabilityRouter } from "./routes/availability.js";
 import { groupMealsRouter } from "./routes/groupMeals.js";
 import { lineRouter } from "./routes/line.js";
 import { lineWebhookRouter } from "./routes/lineWebhook.js";
+import { autoGroupMealsRouter } from "./routes/autoGroupMeals.js";
 import { authMiddleware } from "./middleware/auth.js";
 
 console.log(`Starting API server in ${NODE_ENV} mode`);
@@ -108,6 +109,7 @@ app.use("/api/likes", likesRouter);
 app.use("/api/matches", matchesRouter);
 app.use("/api/availability", availabilityRouter);
 app.use("/api/group-meals", groupMealsRouter);
+app.use("/api/auto-group-meals", autoGroupMealsRouter);
 
 // 👇 LINE 関連ルート
 app.use("/api/line", lineRouter);
