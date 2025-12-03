@@ -171,11 +171,6 @@ const membershipRequiredResponse = {
     status: 'UNAPPLIED',
     action: 'JOIN_REQUIRED'
 };
-const participantInclude = { user: { include: { profile: true } } };
-const groupMealInclude = {
-    participants: { include: participantInclude },
-    host: { include: { profile: true } }
-};
 function buildSchedulePayloadFromGroupMeal(groupMeal) {
     const meetingTimeMinutes = groupMeal.meetingTimeMinutes ?? null;
     const placeName = groupMeal.placeName ?? groupMeal.meetingPlace ?? null;
@@ -269,11 +264,47 @@ function buildGroupMealPayload(groupMeal, currentUserId, opts = {}) {
         participants
     };
 }
-async function fetchGroupMeal(id) {
-    return prisma.groupMeal.findUnique({
-        where: { id },
-        include: groupMealInclude
+async function attachGroupMealRelations(groupMeals) {
+    if (groupMeals.length === 0)
+        return [];
+    const groupMealIds = groupMeals.map((gm) => gm.id);
+    const participants = await prisma.groupMealParticipant.findMany({
+        where: {
+            groupMealId: { in: groupMealIds }
+        },
+        include: {
+            user: { include: { profile: true } }
+        }
     });
+    const participantMap = new Map();
+    for (const participant of participants) {
+        const list = participantMap.get(participant.groupMealId) ?? [];
+        list.push(participant);
+        participantMap.set(participant.groupMealId, list);
+    }
+    const hostIds = Array.from(new Set(groupMeals.map((gm) => gm.hostUserId)));
+    const hosts = await prisma.user.findMany({
+        where: {
+            id: { in: hostIds }
+        },
+        include: { profile: true }
+    });
+    const hostMap = new Map(hosts.map((host) => [host.id, host]));
+    return groupMeals.map((groupMeal) => ({
+        ...groupMeal,
+        participants: participantMap.get(groupMeal.id) ?? [],
+        host: hostMap.get(groupMeal.hostUserId)
+    }));
+}
+async function fetchGroupMeal(id) {
+    const groupMeal = await prisma.groupMeal.findUnique({
+        where: { id }
+    });
+    if (!groupMeal) {
+        return null;
+    }
+    const [enriched] = await attachGroupMealRelations([groupMeal]);
+    return enriched ?? null;
 }
 async function syncGroupMealStatus(db, groupMealId, capacity, currentStatus) {
     if (currentStatus === GroupMealStatus.CLOSED) {
@@ -395,10 +426,13 @@ groupMealsRouter.post('/', requireAdmin, async (req, res) => {
                         status: GroupMealParticipantStatus.JOINED
                     }
                 }
-            },
-            include: groupMealInclude
+            }
         });
-        return res.status(201).json(buildGroupMealPayload(groupMeal, req.user.userId));
+        const [enriched] = await attachGroupMealRelations([groupMeal]);
+        if (!enriched) {
+            throw new Error('Failed to load group meal relations');
+        }
+        return res.status(201).json(buildGroupMealPayload(enriched, req.user.userId));
     }
     catch (error) {
         console.error('CREATE GROUP MEAL ERROR', error);
@@ -493,10 +527,13 @@ groupMealsRouter.patch('/:id', async (req, res) => {
     try {
         const updated = await prisma.groupMeal.update({
             where: { id: groupMealId },
-            data: updateData,
-            include: groupMealInclude
+            data: updateData
         });
-        return res.json(buildGroupMealPayload(updated, req.user.userId));
+        const [enriched] = await attachGroupMealRelations([updated]);
+        if (!enriched) {
+            return res.status(500).json({ message: 'Failed to load updated group meal' });
+        }
+        return res.json(buildGroupMealPayload(enriched, req.user.userId));
     }
     catch (error) {
         console.error('UPDATE GROUP MEAL ERROR:', error);
@@ -513,7 +550,7 @@ groupMealsRouter.get('/', async (req, res) => {
     today.setUTCDate(today.getUTCDate() - 1); // include recent past a little
     const now = new Date();
     try {
-        const groupMeals = await prisma.groupMeal.findMany({
+        const baseGroupMeals = await prisma.groupMeal.findMany({
             where: {
                 ...(membership ? { communityId: membership.communityId } : {}),
                 status: { in: [GroupMealStatus.OPEN, GroupMealStatus.FULL] },
@@ -523,9 +560,9 @@ groupMealsRouter.get('/', async (req, res) => {
                     { expiresAt: { gt: now } }
                 ]
             },
-            include: groupMealInclude,
             orderBy: [{ date: 'asc' }, { createdAt: 'asc' }]
         });
+        const groupMeals = await attachGroupMealRelations(baseGroupMeals);
         return res.json(groupMeals.map((gm) => buildGroupMealPayload(gm, req.user.userId, { joinedOnly: true })));
     }
     catch (error) {
@@ -547,10 +584,7 @@ groupMealsRouter.get('/:id', async (req, res) => {
         return res.status(400).json(membershipRequiredResponse);
     }
     try {
-        const groupMeal = await prisma.groupMeal.findUnique({
-            where: { id: groupMealId },
-            include: groupMealInclude
-        });
+        const groupMeal = await fetchGroupMeal(groupMealId);
         if (!groupMeal) {
             return res.status(404).json({ message: 'Group meal not found' });
         }
