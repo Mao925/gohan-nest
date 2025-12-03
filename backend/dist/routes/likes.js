@@ -5,8 +5,6 @@ import { prisma } from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { ensureSameCommunity, getApprovedMembership, } from "../utils/membership.js";
 import { buildRelationshipPayload, formatPartnerAnswer, } from "../utils/relationships.js";
-import { sendMatchNotification } from "../lib/line-messaging.js";
-import { pushNewMatchNotification } from "../lib/lineMessages.js";
 const likeSchema = z.object({
     targetUserId: z.string().uuid(),
     answer: z.enum(["YES", "NO"]),
@@ -138,24 +136,6 @@ likesRouter.post("/", async (req, res) => {
             }
             return { matched, matchedAt, partnerName, partnerFavoriteMeals };
         });
-        // ✅ NEW: 自分以外の誰かに YES したら、その「YESされた側」に通知を飛ばす
-        if (parsed.data.answer === "YES" &&
-            req.user.userId !== parsed.data.targetUserId) {
-            const likedUser = await prisma.user.findUnique({
-                where: { id: parsed.data.targetUserId },
-                select: { lineUserId: true },
-            });
-            console.log("[LIKE POST] likedUser for LINE", { likedUser });
-            if (likedUser?.lineUserId) {
-                console.log("[LINE POST] sending 'got-liked' notification to liked user");
-                await sendMatchNotification(likedUser.lineUserId);
-            }
-            else {
-                console.warn("[LINE POST] skip liked-user notification: missing lineUserId", {
-                    likedUserId: parsed.data.targetUserId,
-                });
-            }
-        }
         // マッチ情報自体はフロントで使っている可能性があるのでレスポンスは維持
         if (result.matched) {
             return res.json({
@@ -307,24 +287,6 @@ likesRouter.patch("/:targetUserId", async (req, res) => {
         partnerAnswer: formatPartnerAnswer(partnerLike?.answer),
         matchRecord: result.matchRecord ?? undefined,
     });
-    // ✅ NEW: NO → YES などで YES に変わったとき、
-    // 自分 ≠ targetUserId なら YES された側に通知
-    if (parsed.data.answer === "YES" && req.user.userId !== targetUserId) {
-        const likedUser = await prisma.user.findUnique({
-            where: { id: targetUserId },
-            select: { lineUserId: true },
-        });
-        console.log("[LIKE PATCH] likedUser for LINE", { likedUser });
-        if (likedUser?.lineUserId) {
-            console.log("[LINE PATCH] sending 'got-liked' notification to liked user");
-            await sendMatchNotification(likedUser.lineUserId);
-        }
-        else {
-            console.warn("[LINE PATCH] skip liked-user notification: missing lineUserId", {
-                likedUserId: targetUserId,
-            });
-        }
-    }
     res.json({
         updated: true,
         matched: payload.relationship.matched,
@@ -434,27 +396,6 @@ likesRouter.put("/:targetUserId", async (req, res) => {
                 }
             }
         });
-        if (matchCreated) {
-            const usersToNotify = await prisma.user.findMany({
-                where: { id: { in: [fromUserId, targetUserId] } },
-                select: { id: true, lineUserId: true },
-            });
-            for (const notifyUser of usersToNotify) {
-                if (!notifyUser.lineUserId) {
-                    console.warn("[likes] skip LINE match notification: missing lineUserId", { userId: notifyUser.id });
-                    continue;
-                }
-                try {
-                    await pushNewMatchNotification(notifyUser.lineUserId);
-                }
-                catch (error) {
-                    console.error("[likes] failed to push LINE match notification", {
-                        userId: notifyUser.id,
-                        error,
-                    });
-                }
-            }
-        }
         return res.status(204).end();
     }
     catch (err) {

@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { AvailabilityStatus, GroupMealBudget, GroupMealParticipantStatus, GroupMealStatus, TimeSlot } from '@prisma/client';
+import { AvailabilityStatus, GroupMealBudget, GroupMealMode, GroupMealParticipantStatus, GroupMealStatus, MealTimeSlot, TimeSlot } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getApprovedMembership } from '../utils/membership.js';
+import { computeExpiresAt } from '../utils/availabilityHelpers.js';
 import { pushGroupMealInviteNotification } from '../lib/lineMessages.js';
 const placeSchema = z.object({
     name: z.string().min(1),
@@ -92,6 +93,9 @@ function parseScheduleDate(dateString) {
 function mapTimeBandToTimeSlot(timeBand) {
     return timeBand === 'LUNCH' ? TimeSlot.DAY : TimeSlot.NIGHT;
 }
+function mapTimeBandToMealTimeSlot(timeBand) {
+    return timeBand === 'LUNCH' ? MealTimeSlot.LUNCH : MealTimeSlot.DINNER;
+}
 function mapTimeSlotToTimeBand(timeSlot) {
     return timeSlot === TimeSlot.DAY ? 'LUNCH' : 'DINNER';
 }
@@ -152,6 +156,12 @@ function membershipIsHost(membership, groupMeal) {
         return membership.id === groupMeal.hostMembershipId;
     }
     return membership.userId === groupMeal.hostUserId;
+}
+function requireAdmin(req, res, next) {
+    if (!req.user?.isAdmin) {
+        return res.status(403).json({ message: '管理者のみ利用できます' });
+    }
+    return next();
 }
 const updateParticipantStatusSchema = z.object({
     status: z.enum(['JOINED', 'LATE', 'CANCELLED'])
@@ -284,19 +294,7 @@ async function syncGroupMealStatus(db, groupMealId, capacity, currentStatus) {
 export const groupMealsRouter = Router();
 groupMealsRouter.use(authMiddleware);
 // admin ユーザーには一覧/詳細/削除のみ許可し、それ以外は弾く。一般ユーザーは全機能利用可。
-groupMealsRouter.use((req, res, next) => {
-    if (!req.user?.isAdmin) {
-        return next();
-    }
-    const isListRequest = req.method === 'GET' && (req.path === '/' || req.path === '');
-    const isDetailRequest = req.method === 'GET' && /^\/[0-9a-fA-F-]+$/.test(req.path);
-    const isDeleteRequest = req.method === 'DELETE';
-    if (isListRequest || isDetailRequest || isDeleteRequest) {
-        return next();
-    }
-    return res.status(403).json({ message: '一般ユーザーのみ利用できます' });
-});
-groupMealsRouter.post('/', async (req, res) => {
+groupMealsRouter.post('/', requireAdmin, async (req, res) => {
     const membership = await getApprovedMembership(req.user.userId);
     if (!membership) {
         return res.status(400).json(membershipRequiredResponse);
@@ -347,6 +345,8 @@ groupMealsRouter.post('/', async (req, res) => {
             return hours * 60 + minutes;
         })()
         : null;
+    const mealTimeSlot = mapTimeBandToMealTimeSlot(schedule.timeBand);
+    const expiresAt = computeExpiresAt(date, mealTimeSlot);
     if (meetingTimeMinutes !== null) {
         validateMeetingTime(meetingTimeMinutes, schedule.timeBand);
     }
@@ -357,6 +357,10 @@ groupMealsRouter.post('/', async (req, res) => {
     const placeLongitude = place?.longitude ?? null;
     const placeGooglePlaceId = place?.googlePlaceId ?? null;
     const meetingPlace = placeName;
+    const locationName = meetingPlace ?? placeName ?? null;
+    const locationLatitude = placeLatitude ?? null;
+    const locationLongitude = placeLongitude ?? null;
+    const now = new Date();
     try {
         const groupMeal = await prisma.groupMeal.create({
             data: {
@@ -367,6 +371,11 @@ groupMealsRouter.post('/', async (req, res) => {
                 date,
                 weekday,
                 timeSlot,
+                mode: GroupMealMode.REAL,
+                mealTimeSlot,
+                locationName,
+                latitude: locationLatitude,
+                longitude: locationLongitude,
                 capacity,
                 meetingPlace,
                 meetingTimeMinutes,
@@ -376,6 +385,9 @@ groupMealsRouter.post('/', async (req, res) => {
                 placeLongitude,
                 placeGooglePlaceId,
                 budget: normalizedBudget,
+                createdById: req.user.userId,
+                expiresAt,
+                talkTopics: [],
                 participants: {
                     create: {
                         userId: req.user.userId,
@@ -499,12 +511,17 @@ groupMealsRouter.get('/', async (req, res) => {
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
     today.setUTCDate(today.getUTCDate() - 1); // include recent past a little
+    const now = new Date();
     try {
         const groupMeals = await prisma.groupMeal.findMany({
             where: {
                 ...(membership ? { communityId: membership.communityId } : {}),
                 status: { in: [GroupMealStatus.OPEN, GroupMealStatus.FULL] },
-                date: { gte: today }
+                date: { gte: today },
+                OR: [
+                    { expiresAt: null },
+                    { expiresAt: { gt: now } }
+                ]
             },
             include: groupMealInclude,
             orderBy: [{ date: 'asc' }, { createdAt: 'asc' }]
@@ -536,6 +553,9 @@ groupMealsRouter.get('/:id', async (req, res) => {
         });
         if (!groupMeal) {
             return res.status(404).json({ message: 'Group meal not found' });
+        }
+        if (groupMeal.expiresAt && groupMeal.expiresAt <= new Date()) {
+            return res.status(404).json({ message: 'この募集は終了しています' });
         }
         // 一般ユーザーの場合は、同じコミュニティの箱のみ閲覧可能
         if (!req.user?.isAdmin && membership && groupMeal.communityId !== membership.communityId) {
@@ -601,7 +621,7 @@ groupMealsRouter.get('/:groupMealId/invitations', async (req, res) => {
         return res.status(500).json({ message: 'Failed to fetch invitations' });
     }
 });
-groupMealsRouter.delete('/:id', async (req, res) => {
+groupMealsRouter.delete('/:id', requireAdmin, async (req, res) => {
     const parsedParams = idParamSchema.safeParse(req.params);
     if (!parsedParams.success) {
         return res
@@ -609,20 +629,13 @@ groupMealsRouter.delete('/:id', async (req, res) => {
             .json({ message: 'Invalid group meal id', issues: parsedParams.error.flatten() });
     }
     const groupMealId = parsedParams.data.id;
-    const membership = await getApprovedMembership(req.user.userId);
-    if (!membership && !req.user?.isAdmin) {
-        return res.status(403).json({ message: 'Forbidden' });
-    }
     try {
         const groupMeal = await prisma.groupMeal.findUnique({
             where: { id: groupMealId },
-            select: { id: true, hostMembershipId: true }
+            select: { id: true }
         });
         if (!groupMeal) {
             return res.status(404).json({ message: 'Group meal not found' });
-        }
-        if (!req.user?.isAdmin && groupMeal.hostMembershipId !== membership?.id) {
-            return res.status(403).json({ message: 'Forbidden' });
         }
         await prisma.$transaction([
             prisma.groupMealCandidate.deleteMany({ where: { groupMealId } }),
