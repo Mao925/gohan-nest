@@ -382,12 +382,18 @@ async function attachGroupMealRelations(
 }
 
 async function fetchGroupMeal(id: string) {
-  const groupMeal = await prisma.groupMeal.findUnique({
-    where: { id }
-  });
+  const rows = (await prisma.$queryRaw`
+    SELECT *
+    FROM "GroupMeal"
+    WHERE "id" = ${id}
+    LIMIT 1
+  `) as GroupMeal[];
+
+  const groupMeal = rows[0];
   if (!groupMeal) {
     return null;
   }
+
   const [enriched] = await attachGroupMealRelations([groupMeal]);
   return enriched ?? null;
 }
@@ -669,18 +675,28 @@ groupMealsRouter.get('/', async (req, res) => {
   const now = new Date();
 
   try {
-    const baseGroupMeals = await prisma.groupMeal.findMany({
-      where: {
-        ...(membership ? { communityId: membership.communityId } : {}),
-        status: { in: [GroupMealStatus.OPEN, GroupMealStatus.FULL] },
-        date: { gte: today },
-        OR: [
-          { expiresAt: null },
-          { expiresAt: { gt: now } }
-        ]
-      },
-      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }]
-    });
+    let baseGroupMeals: GroupMeal[];
+
+    if (membership) {
+      baseGroupMeals = (await prisma.$queryRaw<GroupMeal[]>`
+        SELECT *
+        FROM "GroupMeal"
+        WHERE "communityId" = ${membership.communityId}
+          AND "status" IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
+          AND "date" >= ${today}
+          AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
+        ORDER BY "date" ASC, "createdAt" ASC
+      `)!;
+    } else {
+      baseGroupMeals = (await prisma.$queryRaw<GroupMeal[]>`
+        SELECT *
+        FROM "GroupMeal"
+        WHERE "status" IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
+          AND "date" >= ${today}
+          AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
+        ORDER BY "date" ASC, "createdAt" ASC
+      `)!;
+    }
 
     const groupMeals = await attachGroupMealRelations(baseGroupMeals);
 
