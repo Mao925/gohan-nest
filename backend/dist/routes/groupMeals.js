@@ -297,9 +297,13 @@ async function attachGroupMealRelations(groupMeals) {
     }));
 }
 async function fetchGroupMeal(id) {
-    const groupMeal = await prisma.groupMeal.findUnique({
-        where: { id }
-    });
+    const rows = (await prisma.$queryRaw `
+    SELECT *
+    FROM "GroupMeal"
+    WHERE "id" = ${id}
+    LIMIT 1
+  `);
+    const groupMeal = rows[0];
     if (!groupMeal) {
         return null;
     }
@@ -550,18 +554,28 @@ groupMealsRouter.get('/', async (req, res) => {
     today.setUTCDate(today.getUTCDate() - 1); // include recent past a little
     const now = new Date();
     try {
-        const baseGroupMeals = await prisma.groupMeal.findMany({
-            where: {
-                ...(membership ? { communityId: membership.communityId } : {}),
-                status: { in: [GroupMealStatus.OPEN, GroupMealStatus.FULL] },
-                date: { gte: today },
-                OR: [
-                    { expiresAt: null },
-                    { expiresAt: { gt: now } }
-                ]
-            },
-            orderBy: [{ date: 'asc' }, { createdAt: 'asc' }]
-        });
+        let baseGroupMeals;
+        if (membership) {
+            baseGroupMeals = (await prisma.$queryRaw `
+        SELECT *
+        FROM "GroupMeal"
+        WHERE "communityId" = ${membership.communityId}
+          AND "status" IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
+          AND "date" >= ${today}
+          AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
+        ORDER BY "date" ASC, "createdAt" ASC
+      `);
+        }
+        else {
+            baseGroupMeals = (await prisma.$queryRaw `
+        SELECT *
+        FROM "GroupMeal"
+        WHERE "status" IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
+          AND "date" >= ${today}
+          AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
+        ORDER BY "date" ASC, "createdAt" ASC
+      `);
+        }
         const groupMeals = await attachGroupMealRelations(baseGroupMeals);
         return res.json(groupMeals.map((gm) => buildGroupMealPayload(gm, req.user.userId, { joinedOnly: true })));
     }
