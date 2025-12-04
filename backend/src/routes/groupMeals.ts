@@ -43,6 +43,9 @@ const budgetInputSchema = z
 const scheduleTimeBandSchema = z.enum(['LUNCH', 'DINNER']);
 type ScheduleTimeBand = z.infer<typeof scheduleTimeBandSchema>;
 
+const groupMealModeSchema = z.enum(['REAL', 'MEET']);
+type GroupMealModeInput = z.infer<typeof groupMealModeSchema>;
+
 const scheduleSchema = z.object({
   date: z
     .string()
@@ -63,7 +66,8 @@ const createGroupMealNestedSchema = z.object({
   title: z.string().optional().default(''),
   capacity: z.number().int().positive(),
   budget: budgetInputSchema,
-  schedule: scheduleSchema
+  schedule: scheduleSchema,
+  mode: groupMealModeSchema.optional()
 });
 
 // ② フラット形式: { title, date, timeBand, meetingTime, capacity, budget, place* }
@@ -77,7 +81,8 @@ const createGroupMealFlatSchema = z.object({
   placeName: z.string().optional(),
   placeAddress: z.string().optional(),
   latitude: z.number().nullable().optional(),
-  longitude: z.number().nullable().optional()
+  longitude: z.number().nullable().optional(),
+  mode: groupMealModeSchema.optional()
 });
 
 const scheduleUpdateSchema = z.object({
@@ -328,6 +333,7 @@ function buildGroupMealPayload(
     timeSlot: groupMeal.timeSlot,
     capacity: groupMeal.capacity,
     status: groupMeal.status,
+    mode: groupMeal.mode,
     host: {
       userId: groupMeal.hostUserId,
       name: groupMeal.host.profile?.name || '',
@@ -453,6 +459,7 @@ groupMealsRouter.post('/', requireAdmin, async (req, res) => {
         title: f.title,
         capacity: f.capacity,
         budget: f.budget ?? null,
+        mode: f.mode ?? undefined,
         schedule: {
           date: f.date,
           timeBand: f.timeBand,
@@ -473,6 +480,9 @@ groupMealsRouter.post('/', requireAdmin, async (req, res) => {
   }
 
   const { title, capacity, budget, schedule } = parsed.data;
+  const modeInput = (parsed.data as { mode?: GroupMealModeInput }).mode ?? 'REAL';
+  const normalizedMode =
+    modeInput === 'MEET' ? GroupMealMode.MEET : GroupMealMode.REAL;
   const normalizedBudget = mapBudgetValueToEnum(budget ?? null);
 
   const date = parseScheduleDate(schedule.date);
@@ -516,7 +526,7 @@ groupMealsRouter.post('/', requireAdmin, async (req, res) => {
         date,
         weekday,
         timeSlot,
-        mode: GroupMealMode.REAL,
+        mode: normalizedMode,
         mealTimeSlot,
         locationName,
         latitude: locationLatitude,
@@ -673,6 +683,13 @@ groupMealsRouter.get('/', async (req, res) => {
   today.setUTCHours(0, 0, 0, 0);
   today.setUTCDate(today.getUTCDate() - 1); // include recent past a little
   const now = new Date();
+  const modeParam = typeof req.query.mode === 'string' ? req.query.mode.toUpperCase() : undefined;
+  const modeFilter =
+    modeParam === 'REAL'
+      ? GroupMealMode.REAL
+      : modeParam === 'MEET'
+      ? GroupMealMode.MEET
+      : undefined;
 
   try {
     let baseGroupMeals: any[];
@@ -694,6 +711,10 @@ groupMealsRouter.get('/', async (req, res) => {
           AND "date" >= ${today}
         ORDER BY "date" ASC, "createdAt" ASC
       `)!;
+    }
+
+    if (modeFilter) {
+      baseGroupMeals = baseGroupMeals.filter((groupMeal) => groupMeal.mode === modeFilter);
     }
 
     const groupMeals = await attachGroupMealRelations(baseGroupMeals);
