@@ -675,25 +675,23 @@ groupMealsRouter.get('/', async (req, res) => {
   const now = new Date();
 
   try {
-    let baseGroupMeals: GroupMeal[];
+    let baseGroupMeals: any[];
 
     if (membership) {
-      baseGroupMeals = (await prisma.$queryRaw<GroupMeal[]>`
+      baseGroupMeals = (await prisma.$queryRaw`
         SELECT *
         FROM "GroupMeal"
         WHERE "communityId" = ${membership.communityId}
           AND "status"::text IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
           AND "date" >= ${today}
-          AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
         ORDER BY "date" ASC, "createdAt" ASC
       `)!;
     } else {
-      baseGroupMeals = (await prisma.$queryRaw<GroupMeal[]>`
+      baseGroupMeals = (await prisma.$queryRaw`
         SELECT *
         FROM "GroupMeal"
         WHERE "status"::text IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
           AND "date" >= ${today}
-          AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
         ORDER BY "date" ASC, "createdAt" ASC
       `)!;
     }
