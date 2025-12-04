@@ -42,6 +42,12 @@ const budgetInputSchema = z
   .nullable()
   .optional();
 
+const meetUrlSchema = z
+  .string()
+  .url("meetUrl must be a valid URL")
+  .max(2048)
+  .optional();
+
 const scheduleTimeBandSchema = z.enum(["LUNCH", "DINNER"]);
 type ScheduleTimeBand = z.infer<typeof scheduleTimeBandSchema>;
 
@@ -70,6 +76,7 @@ const createGroupMealNestedSchema = z.object({
   budget: budgetInputSchema,
   schedule: scheduleSchema,
   mode: groupMealModeSchema.optional(),
+  meetUrl: meetUrlSchema,
 });
 
 // ② フラット形式: { title, date, timeBand, meetingTime, capacity, budget, place* }
@@ -85,6 +92,7 @@ const createGroupMealFlatSchema = z.object({
   latitude: z.number().nullable().optional(),
   longitude: z.number().nullable().optional(),
   mode: groupMealModeSchema.optional(),
+  meetUrl: meetUrlSchema,
 });
 
 const scheduleUpdateSchema = z.object({
@@ -102,6 +110,7 @@ const scheduleUpdateSchema = z.object({
 const updateGroupMealSchema = z.object({
   schedule: scheduleUpdateSchema.optional(),
   meetingPlace: z.string().trim().max(255).optional(),
+  meetUrl: meetUrlSchema,
 });
 type UpdateGroupMealInput = z.infer<typeof updateGroupMealSchema>;
 
@@ -348,6 +357,7 @@ function buildGroupMealPayload(
     capacity: groupMeal.capacity,
     status: groupMeal.status,
     mode: groupMeal.mode,
+    meetUrl: groupMeal.meetUrl ?? null,
     host: {
       userId: groupMeal.hostUserId,
       name: groupMeal.host.profile?.name || "",
@@ -452,6 +462,14 @@ export const groupMealsRouter = Router();
 
 groupMealsRouter.use(authMiddleware);
 
+groupMealsRouter.post("/_debug", (req, res) => {
+  console.log("[group-meals] debug hit", {
+    userId: req.user?.userId,
+    body: req.body,
+  });
+  return res.json({ ok: true });
+});
+
 // admin ユーザーには一覧/詳細/削除のみ許可し、それ以外は弾く。一般ユーザーは全機能利用可。
 groupMealsRouter.post("/", requireAdmin, async (req, res) => {
   const membership = await getApprovedMembership(req.user!.userId);
@@ -480,6 +498,7 @@ groupMealsRouter.post("/", requireAdmin, async (req, res) => {
         capacity: f.capacity,
         budget: f.budget ?? null,
         mode: f.mode ?? undefined,
+        meetUrl: f.meetUrl ?? undefined,
         schedule: {
           date: f.date,
           timeBand: f.timeBand,
@@ -499,12 +518,29 @@ groupMealsRouter.post("/", requireAdmin, async (req, res) => {
     } as const;
   }
 
-  const { title, capacity, budget, schedule } = parsed.data;
-  const modeInput =
-    (parsed.data as { mode?: GroupMealModeInput }).mode ?? "REAL";
-  const normalizedMode =
-    modeInput === "MEET" ? GroupMealMode.MEET : GroupMealMode.REAL;
+  const {
+    title,
+    capacity,
+    budget,
+    schedule,
+    mode: rawMode,
+    meetUrl: rawMeetUrl,
+  } = parsed.data;
+  const normalizedMode: GroupMealMode =
+    rawMode === GroupMealMode.MEET || rawMode === "MEET"
+      ? GroupMealMode.MEET
+      : GroupMealMode.REAL;
   const normalizedBudget = mapBudgetValueToEnum(budget ?? null);
+
+  let meetUrl: string | null = null;
+  if (normalizedMode === GroupMealMode.MEET) {
+    if (!rawMeetUrl) {
+      return res
+        .status(400)
+        .json({ message: "MeetでGO飯の箱には meetUrl が必須です" });
+    }
+    meetUrl = rawMeetUrl;
+  }
 
   const date = parseScheduleDate(schedule.date);
   const weekday = getWeekdayFromDate(date);
@@ -525,16 +561,18 @@ groupMealsRouter.post("/", requireAdmin, async (req, res) => {
     validateMeetingTime(meetingTimeMinutes, schedule.timeBand);
   }
 
-  const place = schedule.place;
-  const placeName = place?.name ?? null;
-  const placeAddress = place?.address ?? null;
-  const placeLatitude = place?.latitude ?? null;
-  const placeLongitude = place?.longitude ?? null;
-  const placeGooglePlaceId = place?.googlePlaceId ?? null;
-  const meetingPlace = placeName;
-  const locationName = meetingPlace ?? placeName ?? null;
-  const locationLatitude = placeLatitude ?? null;
-  const locationLongitude = placeLongitude ?? null;
+  const isMeet = normalizedMode === GroupMealMode.MEET;
+  const place = isMeet ? undefined : schedule.place;
+  const placeName = isMeet ? null : place?.name ?? null;
+  const placeAddress = isMeet ? null : place?.address ?? null;
+  const placeLatitude = isMeet ? null : place?.latitude ?? null;
+  const placeLongitude = isMeet ? null : place?.longitude ?? null;
+  const placeGooglePlaceId = isMeet ? null : place?.googlePlaceId ?? null;
+
+  const meetingPlace = isMeet ? null : placeName;
+  const locationName = isMeet ? null : meetingPlace ?? placeName ?? null;
+  const locationLatitude = isMeet ? null : placeLatitude ?? null;
+  const locationLongitude = isMeet ? null : placeLongitude ?? null;
 
   const now = new Date();
   try {
@@ -552,6 +590,7 @@ groupMealsRouter.post("/", requireAdmin, async (req, res) => {
         locationName,
         latitude: locationLatitude,
         longitude: locationLongitude,
+        meetUrl,
         capacity,
         meetingPlace,
         meetingTimeMinutes,
@@ -676,6 +715,11 @@ groupMealsRouter.patch("/:id", async (req, res) => {
       updateData.meetingPlace = parsedBody.data.meetingPlace;
       if (updateData.placeName == null) {
         updateData.placeName = parsedBody.data.meetingPlace;
+      }
+    }
+    if (parsedBody.data.meetUrl !== undefined) {
+      if (groupMeal.mode === GroupMealMode.MEET) {
+        updateData.meetUrl = parsedBody.data.meetUrl ?? null;
       }
     }
   } catch (error: any) {
