@@ -810,26 +810,23 @@ groupMealsRouter.get("/", async (req, res) => {
   }
 });
 
-groupMealsRouter.get("/:id", async (req, res) => {
-  const parsedParams = idParamSchema.safeParse(req.params);
+groupMealsRouter.get("/:groupMealId", async (req, res) => {
+  const parsedParams = groupMealIdParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
-    return res
-      .status(400)
-      .json({
-        message: "Invalid group meal id",
-        issues: parsedParams.error.flatten(),
-      });
+    return res.status(400).json({
+      message: "Invalid group meal id",
+      issues: parsedParams.error.flatten(),
+    });
   }
 
-  const groupMealId = parsedParams.data.id;
+  const { groupMealId } = parsedParams.data;
 
-  // admin 以外は membership 必須
   const membership = req.user?.isAdmin
     ? null
     : await getApprovedMembership(req.user!.userId);
 
   if (!membership && !req.user?.isAdmin) {
-    return res.status(400).json(membershipRequiredResponse);
+    return res.status(403).json({ message: "membership required" });
   }
 
   try {
@@ -843,7 +840,6 @@ groupMealsRouter.get("/:id", async (req, res) => {
       return res.status(404).json({ message: "この募集は終了しています" });
     }
 
-    // 一般ユーザーの場合は、同じコミュニティの箱のみ閲覧可能
     if (
       !req.user?.isAdmin &&
       membership &&
@@ -852,7 +848,23 @@ groupMealsRouter.get("/:id", async (req, res) => {
       return res.status(403).json({ message: "別のコミュニティの募集です" });
     }
 
-    return res.json(buildGroupMealPayload(groupMeal, req.user!.userId));
+    const payload = buildGroupMealPayload(groupMeal, req.user!.userId);
+    const gatherTime =
+      groupMeal.meetingTimeMinutes != null
+        ? formatMinutesToTimeString(groupMeal.meetingTimeMinutes)
+        : null;
+
+    return res.json({
+      ...payload,
+      gatherTime,
+      organizer: {
+        id: groupMeal.hostUserId,
+        name: groupMeal.host.profile?.name || "",
+        profileImageUrl: groupMeal.host.profile?.profileImageUrl ?? null,
+      },
+      nearestStation: groupMeal.meetingPlace ?? null,
+      budgetOption: payload.budget,
+    });
   } catch (error: any) {
     console.error("GET GROUP MEAL DETAIL ERROR:", error);
     return res
