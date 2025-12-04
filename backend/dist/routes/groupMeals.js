@@ -560,7 +560,7 @@ groupMealsRouter.get('/', async (req, res) => {
         SELECT *
         FROM "GroupMeal"
         WHERE "communityId" = ${membership.communityId}
-          AND "status" IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
+          AND "status"::text IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
           AND "date" >= ${today}
           AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
         ORDER BY "date" ASC, "createdAt" ASC
@@ -570,7 +570,7 @@ groupMealsRouter.get('/', async (req, res) => {
             baseGroupMeals = (await prisma.$queryRaw `
         SELECT *
         FROM "GroupMeal"
-        WHERE "status" IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
+        WHERE "status"::text IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
           AND "date" >= ${today}
           AND ("expiresAt" IS NULL OR "expiresAt" > ${now})
         ORDER BY "date" ASC, "createdAt" ASC
