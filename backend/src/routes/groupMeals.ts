@@ -278,6 +278,15 @@ function buildSchedulePayloadFromGroupMeal(groupMeal: GroupMealWithRelations) {
   };
 }
 
+function getNearestStationFromGroupMeal(groupMeal: GroupMealWithRelations) {
+  return (
+    groupMeal.meetingPlace ??
+    groupMeal.locationName ??
+    groupMeal.placeName ??
+    null
+  );
+}
+
 type PrismaClientOrTx = {
   groupMealParticipant: typeof prisma.groupMealParticipant;
   groupMeal: typeof prisma.groupMeal;
@@ -347,6 +356,7 @@ function buildGroupMealPayload(
         )
       : groupMeal.participants
   ).map(buildParticipantPayload);
+  const nearestStation = getNearestStationFromGroupMeal(groupMeal);
 
   return {
     id: groupMeal.id,
@@ -364,6 +374,7 @@ function buildGroupMealPayload(
       profileImageUrl: groupMeal.host.profile?.profileImageUrl ?? null,
     },
     meetingPlace: groupMeal.meetingPlace ?? null,
+    nearestStation,
     schedule: buildSchedulePayloadFromGroupMeal(groupMeal),
     budget: groupMeal.budget ?? null,
     joinedCount,
@@ -863,7 +874,7 @@ groupMealsRouter.get("/:groupMealId", async (req, res) => {
         name: groupMeal.host.profile?.name || "",
         profileImageUrl: groupMeal.host.profile?.profileImageUrl ?? null,
       },
-      nearestStation: groupMeal.meetingPlace ?? null,
+      nearestStation: payload.nearestStation,
       budgetOption: payload.budget,
     });
   } catch (error: any) {
