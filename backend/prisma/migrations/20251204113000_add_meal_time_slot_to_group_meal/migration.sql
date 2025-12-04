@@ -1,24 +1,25 @@
--- Add mealTimeSlot column to GroupMeal (and TimeSlot type if needed)
+-- prisma/migrations/20251204113000_add_meal_time_slot_to_group_meal/migration.sql
 
 DO $$
 BEGIN
-  -- TimeSlot 型がまだ無い場合だけ作る（あれば何もしない）
+  --------------------------------------------------------------------------
+  -- 1) TimeSlot 型がなければ作る
+  --    ※ ここでは中身のラベルまでは触らない。新規環境用の保険だけ。
+  --------------------------------------------------------------------------
   IF NOT EXISTS (
     SELECT 1
-    FROM pg_type
-    WHERE typname = 'TimeSlot'
+    FROM pg_type t
+    WHERE t.typname = 'TimeSlot'
   ) THEN
-    CREATE TYPE "TimeSlot" AS ENUM (
-      'LUNCH',
-      'DINNER'
-      -- schema.prisma の enum TimeSlot に合わせて増やす
-    );
+    -- 新規環境用の暫定定義。既に TimeSlot がある本番には一切触らない。
+    CREATE TYPE "TimeSlot" AS ENUM ('TEMP_DUMMY');
   END IF;
 END$$;
 
--- GroupMeal テーブルに mealTimeSlot カラムを追加
+---------------------------------------------------------------------------
+-- 2) GroupMeal テーブルに mealTimeSlot カラムを追加（存在しなければ）
+--    デフォルト値も NOT NULL 制約もここでは付けない。
+--    → 既存 DB の TimeSlot ラベル構成に依存しないようにする。
+---------------------------------------------------------------------------
 ALTER TABLE "GroupMeal"
-  ADD COLUMN IF NOT EXISTS "mealTimeSlot" "TimeSlot" NOT NULL DEFAULT 'LUNCH';
-  -- もし schema.prisma 側が optional（`TimeSlot?`）なら NOT NULL / DEFAULT は消す：
-  -- ADD COLUMN IF NOT EXISTS "mealTimeSlot" "TimeSlot";
-  
+  ADD COLUMN IF NOT EXISTS "mealTimeSlot" "TimeSlot";
