@@ -261,8 +261,17 @@ function getMyStatus(participants, userId) {
         return "LATE";
     return "NONE";
 }
+function getCountedParticipantsForGroupMeal(groupMeal, includedStatuses = ATTENDING_PARTICIPANT_STATUSES) {
+    const hostId = groupMeal.hostUserId;
+    return groupMeal.participants.filter((participant) => {
+        if (hostId && participant.userId === hostId) {
+            return false;
+        }
+        return includedStatuses.includes(participant.status);
+    });
+}
 function buildGroupMealPayload(groupMeal, currentUserId, opts = {}) {
-    const joinedCount = groupMeal.participants.filter((p) => ATTENDING_PARTICIPANT_STATUSES.includes(p.status)).length;
+    const joinedCount = getCountedParticipantsForGroupMeal(groupMeal).length;
     const participants = (opts.joinedOnly
         ? groupMeal.participants.filter((p) => ATTENDING_PARTICIPANT_STATUSES.includes(p.status))
         : groupMeal.participants).map(buildParticipantPayload);
@@ -340,16 +349,18 @@ async function fetchGroupMeal(id) {
     const [enriched] = await attachGroupMealRelations([groupMeal]);
     return enriched ?? null;
 }
-async function syncGroupMealStatus(db, groupMealId, capacity, currentStatus) {
+async function syncGroupMealStatus(db, groupMealId, capacity, currentStatus, hostUserId) {
     if (currentStatus === GroupMealStatus.CLOSED) {
         return currentStatus;
     }
-    const activeCount = await db.groupMealParticipant.count({
-        where: {
-            groupMealId,
-            status: { in: ACTIVE_PARTICIPANT_STATUSES },
-        },
-    });
+    const where = {
+        groupMealId,
+        status: { in: ACTIVE_PARTICIPANT_STATUSES },
+    };
+    if (hostUserId) {
+        where.userId = { not: hostUserId };
+    }
+    const activeCount = await db.groupMealParticipant.count({ where });
     const nextStatus = activeCount >= capacity ? GroupMealStatus.FULL : GroupMealStatus.OPEN;
     if (nextStatus !== currentStatus) {
         await db.groupMeal.update({
@@ -920,11 +931,10 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
     }
     const existingParticipantIds = new Set(groupMeal.participants.map((p) => p.userId));
     const newParticipantIds = uniqueUserIds.filter((id) => !existingParticipantIds.has(id));
-    const existingActiveIds = new Set(groupMeal.participants
-        .filter((p) => isActiveParticipant(p.status))
-        .map((p) => p.userId));
+    const countedActiveParticipants = getCountedParticipantsForGroupMeal(groupMeal, ACTIVE_PARTICIPANT_STATUSES);
+    const existingActiveIds = new Set(countedActiveParticipants.map((p) => p.userId));
     const newInviteCount = uniqueUserIds.filter((id) => !existingActiveIds.has(id)).length;
-    const activeCount = existingActiveIds.size;
+    const activeCount = countedActiveParticipants.length;
     if (activeCount + newInviteCount > groupMeal.capacity) {
         return res.status(400).json({ message: "定員を超えるため招待できません" });
     }
@@ -981,7 +991,7 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
                     },
                 });
             }
-            await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status);
+            await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status, groupMeal.hostUserId);
         });
         if (newParticipantIds.length > 0) {
             const usersToNotify = await prisma.user.findMany({
@@ -1133,7 +1143,8 @@ groupMealsRouter.post("/:id/respond", async (req, res) => {
         return res.status(403).json({ message: "別のコミュニティの募集です" });
     }
     const participant = groupMeal.participants.find((p) => p.userId === req.user.userId);
-    const activeCount = groupMeal.participants.filter((p) => isActiveParticipant(p.status)).length;
+    const countedActiveParticipants = getCountedParticipantsForGroupMeal(groupMeal, ACTIVE_PARTICIPANT_STATUSES);
+    const activeCount = countedActiveParticipants.length;
     if (parsedBody.data.action === "ACCEPT") {
         if (participant?.isHost) {
             return res.status(400).json({ message: "ホストは常に参加者です" });
@@ -1162,7 +1173,7 @@ groupMealsRouter.post("/:id/respond", async (req, res) => {
                         },
                     });
                 }
-                await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status);
+                await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status, groupMeal.hostUserId);
             });
             const updated = await fetchGroupMeal(groupMealId);
             return res.json(buildGroupMealPayload(updated, req.user.userId));
@@ -1187,7 +1198,7 @@ groupMealsRouter.post("/:id/respond", async (req, res) => {
                 },
                 data: { status: GroupMealParticipantStatus.DECLINED },
             });
-            await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status);
+            await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status, groupMeal.hostUserId);
         });
         const updated = await fetchGroupMeal(groupMealId);
         return res.json(buildGroupMealPayload(updated, req.user.userId));
@@ -1240,7 +1251,7 @@ groupMealsRouter.patch("/:groupMealId/participant/status", async (req, res) => {
                 where: { id: participant.id },
                 data: { status: parsedBody.data.status },
             });
-            await syncGroupMealStatus(tx, groupMeal.id, groupMeal.capacity, groupMeal.status);
+            await syncGroupMealStatus(tx, groupMeal.id, groupMeal.capacity, groupMeal.status, groupMeal.hostUserId);
         });
         const updated = await fetchGroupMeal(groupMealId);
         return res.json(buildGroupMealPayload(updated, req.user.userId));
@@ -1284,7 +1295,7 @@ groupMealsRouter.post("/:id/join", async (req, res) => {
     if (participant && isActiveParticipant(participant.status)) {
         return res.status(400).json({ message: "既に参加または招待済みです" });
     }
-    const activeCount = groupMeal.participants.filter((p) => isActiveParticipant(p.status)).length;
+    const activeCount = getCountedParticipantsForGroupMeal(groupMeal, ACTIVE_PARTICIPANT_STATUSES).length;
     if (activeCount + 1 > groupMeal.capacity) {
         return res.status(400).json({ message: "定員に空きがありません" });
     }
@@ -1308,7 +1319,7 @@ groupMealsRouter.post("/:id/join", async (req, res) => {
                     },
                 });
             }
-            await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status);
+            await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status, groupMeal.hostUserId);
         });
         const updated = await fetchGroupMeal(groupMealId);
         return res.json(buildGroupMealPayload(updated, req.user.userId));
@@ -1375,7 +1386,7 @@ groupMealsRouter.post("/:id/leave", async (req, res) => {
                     status: GroupMealParticipantStatus.CANCELLED,
                 },
             });
-            await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status);
+            await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status, groupMeal.hostUserId);
         });
         const updated = await fetchGroupMeal(groupMealId);
         return res.json(buildGroupMealPayload(updated, req.user.userId));
