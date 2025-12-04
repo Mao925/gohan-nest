@@ -1,3 +1,19 @@
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_type
+    WHERE typname = 'GroupMealBudget'
+  ) THEN
+    CREATE TYPE "GroupMealBudget" AS ENUM (
+      'UNDER_1000',
+      'UNDER_1500',
+      'UNDER_2000',
+      'OVER_2000'
+    );
+  END IF;
+END$$;
+
 -- CreateEnum "GroupMealStatus"
 DO $$
 BEGIN
