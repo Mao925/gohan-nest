@@ -76,6 +76,8 @@ app.use("/api/members", membersRouter);
 app.use("/api/likes", likesRouter);
 app.use("/api/matches", matchesRouter);
 app.use("/api/availability", availabilityRouter);
+// フロントの NEXT_PUBLIC_API_BASE_URL はこの API サーバーのホスト（例: https://gohan-backend.onrailway.app）を指し、
+// フロントからの `POST /api/group-meals` が Next.js 側の `/api` ではなくこの Express ルートに届くようにしてください。
 app.use("/api/group-meals", groupMealsRouter);
 app.use("/api/auto-group-meals", autoGroupMealsRouter);
 // 👇 LINE 関連ルート
@@ -98,6 +100,14 @@ app.get("/api/availability-status", authMiddleware, async (req, res) => {
     }
 });
 app.use("/api/dev", devRouter);
+app.use((req, res) => {
+    console.warn("[404] No route matched", {
+        method: req.method,
+        path: req.path,
+        originalUrl: req.originalUrl,
+    });
+    return res.status(404).json({ message: "Not Found" });
+});
 async function ensureDefaultCommunity() {
     await prisma.community.upsert({
         where: { inviteCode: DEFAULT_COMMUNITY_CODE },

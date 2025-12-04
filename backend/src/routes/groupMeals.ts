@@ -527,9 +527,7 @@ groupMealsRouter.post("/", requireAdmin, async (req, res) => {
     meetUrl: rawMeetUrl,
   } = parsed.data;
   const normalizedMode: GroupMealMode =
-    rawMode === GroupMealMode.MEET || rawMode === "MEET"
-      ? GroupMealMode.MEET
-      : GroupMealMode.REAL;
+    rawMode === GroupMealMode.MEET ? GroupMealMode.MEET : GroupMealMode.REAL;
   const normalizedBudget = mapBudgetValueToEnum(budget ?? null);
 
   let meetUrl: string | null = null;
