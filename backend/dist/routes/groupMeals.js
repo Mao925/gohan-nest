@@ -656,34 +656,40 @@ groupMealsRouter.get("/", async (req, res) => {
     }
 });
 groupMealsRouter.get("/:groupMealId", async (req, res) => {
-    const parsedParams = groupMealIdParamSchema.safeParse(req.params);
-    if (!parsedParams.success) {
-        return res.status(400).json({
-            message: "Invalid group meal id",
-            issues: parsedParams.error.flatten(),
-        });
+    console.log("GET /api/group-meals/:groupMealId", {
+        params: req.params,
+        userId: req.user?.userId,
+    });
+    const { groupMealId } = req.params;
+    if (!groupMealId) {
+        return res.status(400).json({ message: "groupMealId is required" });
     }
-    const { groupMealId } = parsedParams.data;
-    const membership = req.user?.isAdmin
-        ? null
-        : await getApprovedMembership(req.user.userId);
-    if (!membership && !req.user?.isAdmin) {
+    const userId = req.user.userId;
+    const membership = await getApprovedMembership(userId);
+    if (!membership) {
         return res.status(403).json({ message: "membership required" });
     }
     try {
-        const groupMeal = await fetchGroupMeal(groupMealId);
+        const groupMeal = (await prisma.groupMeal.findFirst({
+            where: {
+                id: groupMealId,
+                communityId: membership.communityId,
+            },
+            include: {
+                host: { include: { profile: true } },
+                participants: {
+                    include: { user: { include: { profile: true } } },
+                },
+            },
+        }));
         if (!groupMeal) {
+            console.log("Group meal not found", {
+                groupMealId,
+                communityId: membership.communityId,
+            });
             return res.status(404).json({ message: "Group meal not found" });
         }
-        if (groupMeal.expiresAt && groupMeal.expiresAt <= new Date()) {
-            return res.status(404).json({ message: "この募集は終了しています" });
-        }
-        if (!req.user?.isAdmin &&
-            membership &&
-            groupMeal.communityId !== membership.communityId) {
-            return res.status(403).json({ message: "別のコミュニティの募集です" });
-        }
-        const payload = buildGroupMealPayload(groupMeal, req.user.userId);
+        const payload = buildGroupMealPayload(groupMeal, userId);
         const gatherTime = groupMeal.meetingTimeMinutes != null
             ? formatMinutesToTimeString(groupMeal.meetingTimeMinutes)
             : null;
@@ -700,10 +706,8 @@ groupMealsRouter.get("/:groupMealId", async (req, res) => {
         });
     }
     catch (error) {
-        console.error("GET GROUP MEAL DETAIL ERROR:", error);
-        return res
-            .status(500)
-            .json({ message: "Failed to fetch group meal detail" });
+        console.error("GET /api/group-meals/:groupMealId error", error);
+        return res.status(500).json({ message: "Internal server error" });
     }
 });
 groupMealsRouter.get("/:groupMealId/invitations", async (req, res) => {
