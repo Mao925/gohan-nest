@@ -48,6 +48,12 @@ docker-compose.yml  # api + db をまとめて起動
 | `AUTO_APPROVE_MEMBERS` | `true` で参加申請を即時承認。`false` で手動承認フロー |
 | `USE_SEED_MEMBERS` | `false` でシードユーザー作成と候補表示を無効化（実ユーザーのみで検証したい場合に利用） |
 
+## フロントからの接続について
+
+- フロントエンドは `POST /api/group-meals` を利用して箱を作成し、このルートは Express 側で `app.use('/api/group-meals', groupMealsRouter)`としてマウントされています。
+- 本番環境では `NEXT_PUBLIC_API_BASE_URL` を `https://gohan-backend.onrailway.app` などの実際の API ホストに設定しないと、Next.js の `/api/*` 側にリクエストが向かい、404 になってしまいます。
+- `NEXT_PUBLIC_API_BASE_URL` が空だったり Next のホスト（例: `http://localhost:3000`）になっていると、Express ではなく Next.js 側の `/api` に飛んでしまうため、フロントからの `POST /api/group-meals` が 404 を返すようになります。
+
 ## 初期セットアップ / 起動手順
 
 1. 依存関係をインストール（ローカルで実行する場合）
