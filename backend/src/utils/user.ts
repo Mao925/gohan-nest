@@ -51,25 +51,34 @@ export function toUserPayload(user: UserWithProfile, communityStatus: CommunityS
   };
 }
 
-export function getProfileAreas(profile: Profile): string[] {
-  const areaCandidates = [
-    ...(profile.mainArea ? [profile.mainArea] : []),
-    ...(profile.subAreas ?? [])
-  ];
+function normalizeAreaList(entries: (string | null | undefined)[]): string[] {
   const seen = new Set<string>();
-  const areas: string[] = [];
-  for (const entry of areaCandidates) {
+  const normalized: string[] = [];
+  for (const entry of entries) {
     const trimmed = entry?.trim();
     if (!trimmed || seen.has(trimmed)) {
       continue;
     }
     seen.add(trimmed);
-    areas.push(trimmed);
+    normalized.push(trimmed);
   }
-  return areas;
+  return normalized;
 }
 
-export function buildProfileResponse(profile: Profile): ProfileResponse {
+type ProfileWithAreas = Profile & { areas?: string[] };
+
+export function getProfileAreas(profile: ProfileWithAreas): string[] {
+  const persistedAreas = normalizeAreaList(profile.areas ?? []);
+  if (persistedAreas.length > 0) {
+    return persistedAreas;
+  }
+  return normalizeAreaList([
+    ...(profile.mainArea ? [profile.mainArea] : []),
+    ...(profile.subAreas ?? [])
+  ]);
+}
+
+export function buildProfileResponse(profile: ProfileWithAreas): ProfileResponse {
   return {
     id: profile.id,
     userId: profile.userId,

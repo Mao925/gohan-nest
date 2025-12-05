@@ -19,10 +19,9 @@ model User {
   availability          AvailabilitySlot[]
   memberships           CommunityMembership[]
   hostedGroupMeals      GroupMeal[]            @relation("GroupMealHost")
-  invitedGroupMeals     GroupMealCandidate[]   @relation("GroupMealCandidateUser")
   sentGroupMealInvites  GroupMealCandidate[]   @relation("GroupMealCandidateInviter")
+  invitedGroupMeals     GroupMealCandidate[]   @relation("GroupMealCandidateUser")
   groupMealParticipants GroupMealParticipant[]
-  createdGroupMeals     GroupMeal[]            @relation("GroupMealCreatedBy")
   likesFrom             Like[]                 @relation("likesFrom")
   likesTo               Like[]                 @relation("likesTo")
   matches1              Match[]                @relation("user1")
@@ -31,29 +30,25 @@ model User {
 }
 
 model Profile {
-  id     String @id @default(cuid())
-  user   User   @relation(fields: [userId], references: [id])
-  userId String @unique
-
+  id              String           @id @default(cuid())
+  userId          String           @unique
   name            String?
-  favoriteMeals   String[] @default([])
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  isSeedMember    Boolean?         @ignore
+  favoriteMeals   String[]         @default([])
   profileImageUrl String?
-  isSeedMember    Boolean? @ignore
-
-  mainArea String?
-  subAreas String[] @default([])
-
-  defaultBudget GroupMealBudget?
-  drinkingStyle DrinkingStyle?
-  ngFoods       String[]         @default([])
-  hobbies       String[]         @default([])
-
+  mainArea        String?
+  subAreas        String[]         @default([])
+  areas           String[]         @default([])
+  defaultBudget   GroupMealBudget?
+  drinkingStyle   DrinkingStyle?
+  ngFoods         String[]         @default([])
   bio             String?
   mealStyle       MealStyle?
   goMealFrequency GoMealFrequency?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  hobbies         String[]         @default([])
+  user            User             @relation(fields: [userId], references: [id])
 }
 
 model Community {
@@ -76,9 +71,9 @@ model CommunityMembership {
   community          Community        @relation(fields: [communityId], references: [id])
   user               User             @relation(fields: [userId], references: [id])
   hostedGroupMeals   GroupMeal[]      @relation("GroupMealHostMembership")
+  pairMealsCreated   PairMeal[]       @relation("PairMealCreator")
   pairMealsAsMemberA PairMeal[]       @relation("PairMealMemberA")
   pairMealsAsMemberB PairMeal[]       @relation("PairMealMemberB")
-  pairMealsCreated   PairMeal[]       @relation("PairMealCreator")
 
   @@unique([userId, communityId])
 }
@@ -112,33 +107,28 @@ model Match {
 }
 
 model PairMeal {
-  id      String @id @default(cuid())
-  match   Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
-  matchId String
-
-  memberA   CommunityMembership @relation("PairMealMemberA", fields: [memberAId], references: [id])
-  memberAId String
-  memberB   CommunityMembership @relation("PairMealMemberB", fields: [memberBId], references: [id])
-  memberBId String
-
+  id                 String              @id @default(cuid())
+  matchId            String
+  memberAId          String
+  memberBId          String
   date               String
   timeBand           ScheduleTimeBand
   meetingTimeMinutes Int?
-
   placeName          String?
   placeAddress       String?
   placeLatitude      Float?
   placeLongitude     Float?
   placeGooglePlaceId String?
-
-  restaurantName    String?
-  restaurantAddress String?
-
-  status            PairMealStatus      @default(CONFIRMED)
-  createdBy         CommunityMembership @relation("PairMealCreator", fields: [createdByMemberId], references: [id])
-  createdByMemberId String
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  restaurantName     String?
+  restaurantAddress  String?
+  status             PairMealStatus      @default(CONFIRMED)
+  createdByMemberId  String
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  createdBy          CommunityMembership @relation("PairMealCreator", fields: [createdByMemberId], references: [id])
+  match              Match               @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  memberA            CommunityMembership @relation("PairMealMemberA", fields: [memberAId], references: [id])
+  memberB            CommunityMembership @relation("PairMealMemberB", fields: [memberBId], references: [id])
 }
 
 model AvailabilitySlot {
@@ -158,11 +148,23 @@ model GroupMeal {
   id                 String                 @id @default(uuid())
   communityId        String
   hostUserId         String
-  hostMembershipId   String?
   title              String?
   date               DateTime
   weekday            Weekday
   timeSlot           TimeSlot
+  capacity           Int
+  status             GroupMealStatus        @default(OPEN)
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+  budget             GroupMealBudget?
+  meetingPlace       String?                @db.VarChar(255)
+  hostMembershipId   String?
+  meetingTimeMinutes Int?
+  placeAddress       String?
+  placeGooglePlaceId String?
+  placeLatitude      Float?
+  placeLongitude     Float?
+  placeName          String?
   mode               GroupMealMode          @default(REAL)
   mealTimeSlot       MealTimeSlot?
   locationName       String?
@@ -171,25 +173,12 @@ model GroupMeal {
   meetUrl            String?
   talkTopics         String[]
   createdById        String?
-  createdBy          User?                  @relation("GroupMealCreatedBy", fields: [createdById], references: [id])
-  capacity           Int
-  status             GroupMealStatus        @default(OPEN)
-  createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
-  budget             GroupMealBudget?
-  meetingPlace       String?                @db.VarChar(255)
-  meetingTimeMinutes Int?
-  placeName          String?
-  placeAddress       String?
-  placeLatitude      Float?
-  placeLongitude     Float?
-  placeGooglePlaceId String?
-  community          Community              @relation(fields: [communityId], references: [id])
-  host               User                   @relation("GroupMealHost", fields: [hostUserId], references: [id])
-  hostMembership     CommunityMembership?   @relation("GroupMealHostMembership", fields: [hostMembershipId], references: [id])
-  participants       GroupMealParticipant[]
   expiresAt          DateTime?
+  community          Community              @relation(fields: [communityId], references: [id])
+  hostMembership     CommunityMembership?   @relation("GroupMealHostMembership", fields: [hostMembershipId], references: [id])
+  host               User                   @relation("GroupMealHost", fields: [hostUserId], references: [id])
   candidates         GroupMealCandidate[]
+  participants       GroupMealParticipant[]
 }
 
 model GroupMealCandidate {
@@ -202,10 +191,9 @@ model GroupMealCandidate {
   canceledAt      DateTime?
   firstOpenedAt   DateTime?
   lastOpenedAt    DateTime?
-
-  groupMeal GroupMeal @relation(fields: [groupMealId], references: [id])
-  user      User      @relation("GroupMealCandidateUser", fields: [userId], references: [id])
-  invitedBy User      @relation("GroupMealCandidateInviter", fields: [invitedByUserId], references: [id])
+  groupMeal       GroupMeal @relation(fields: [groupMealId], references: [id])
+  invitedBy       User      @relation("GroupMealCandidateInviter", fields: [invitedByUserId], references: [id])
+  user            User      @relation("GroupMealCandidateUser", fields: [userId], references: [id])
 
   @@unique([groupMealId, userId])
   @@index([groupMealId])
@@ -305,9 +293,6 @@ enum GroupMealParticipantStatus {
   DECLINED
   CANCELLED
   LATE
-  PENDING
-  GO
-  NOT_GO
 }
 
 enum GroupMealMode {

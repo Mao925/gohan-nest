@@ -11,22 +11,28 @@ export function toUserPayload(user, communityStatus) {
         profile: user.profile ? buildProfileResponse(user.profile) : null
     };
 }
-export function getProfileAreas(profile) {
-    const areaCandidates = [
-        ...(profile.mainArea ? [profile.mainArea] : []),
-        ...(profile.subAreas ?? [])
-    ];
+function normalizeAreaList(entries) {
     const seen = new Set();
-    const areas = [];
-    for (const entry of areaCandidates) {
+    const normalized = [];
+    for (const entry of entries) {
         const trimmed = entry?.trim();
         if (!trimmed || seen.has(trimmed)) {
             continue;
         }
         seen.add(trimmed);
-        areas.push(trimmed);
+        normalized.push(trimmed);
     }
-    return areas;
+    return normalized;
+}
+export function getProfileAreas(profile) {
+    const persistedAreas = normalizeAreaList(profile.areas ?? []);
+    if (persistedAreas.length > 0) {
+        return persistedAreas;
+    }
+    return normalizeAreaList([
+        ...(profile.mainArea ? [profile.mainArea] : []),
+        ...(profile.subAreas ?? [])
+    ]);
 }
 export function buildProfileResponse(profile) {
     return {
