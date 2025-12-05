@@ -1006,7 +1006,11 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
                     continue;
                 }
                 try {
-                    await pushGroupMealInviteNotification(user.lineUserId);
+                    await pushGroupMealInviteNotification({
+                        lineUserId: user.lineUserId,
+                        mode: groupMeal.mode,
+                        title: groupMeal.title ?? '',
+                    });
                 }
                 catch (error) {
                     console.error("[group-meals] failed to push LINE invite", {

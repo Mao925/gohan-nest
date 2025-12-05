@@ -1,3 +1,4 @@
+import { GroupMealMode } from '@prisma/client';
 import { FRONTEND_URL, LINE_MESSAGING_CHANNEL_ACCESS_TOKEN } from '../config.js';
 const LINE_MESSAGING_API_URL = 'https://api.line.me/v2/bot/message/push';
 const JP_WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -102,12 +103,37 @@ async function sendLineTextMessage(lineUserId, text) {
         throw new Error(`LINE text push failed (${response.status}): ${errorBody}`);
     }
 }
-export async function pushGroupMealInviteNotification(lineUserId) {
+export async function pushGroupMealInviteNotification(params) {
+    const { lineUserId, mode, title } = params;
     if (!lineUserId)
         return;
-    const text = 'あなたがみんなでGO飯に招待されたようです🎉\n\n' +
-        '今すぐアプリをチェック👀\n' +
-        'https://gohan-expo.vercel.app/login';
+    const baseUrl = (FRONTEND_URL || 'https://gohan-expo.vercel.app').replace(/\/$/, '');
+    const loginUrl = `${baseUrl}/login`;
+    const inviteTitle = title ?? '';
+    let text;
+    if (mode === GroupMealMode.REAL) {
+        text =
+            `招待状：${inviteTitle}\n` +
+                'この会に呼ばれた理由は、開けばわかるはず。\n' +
+                'メンバーは既に揃っています。あとは、あなたが日程を決めるだけ。\n\n' +
+                '▼ログインはこちらから🐥\n' +
+                loginUrl;
+    }
+    else if (mode === GroupMealMode.MEET) {
+        text =
+            'まだ、一人でYouTube見てるの？\n' +
+                '実は今、きみと話したい人がMeetで待ってるみたい！\n\n' +
+                '▼ログインはこちらから☃️\n' +
+                loginUrl;
+    }
+    else {
+        text =
+            `招待状：${inviteTitle}\n` +
+                'この会に呼ばれた理由は、開けばわかるはず。\n' +
+                'メンバーは既に揃っています。あとは、あなたが日程を決めるだけ。\n\n' +
+                '▼ログインはこちらから🐥\n' +
+                loginUrl;
+    }
     await sendLineTextMessage(lineUserId, text);
 }
 export async function pushNewMatchNotification(lineUserId) {
