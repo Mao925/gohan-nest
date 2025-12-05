@@ -21,6 +21,7 @@ import {
 import { prisma } from "./lib/prisma.js";
 import { authRouter } from "./routes/auth.js";
 import { communityRouter } from "./routes/community.js";
+import { communityInvitesRouter } from "./routes/communityInvites.js";
 import { adminRouter } from "./routes/admin.js";
 import { profileRouter } from "./routes/profile.js";
 import { membersRouter } from "./routes/members.js";
@@ -103,6 +104,7 @@ app.use("/uploads", express.static(path.resolve("uploads")));
 
 app.use("/api/auth", authRouter);
 app.use("/api/community", communityRouter);
+app.use("/api/community/invites", communityInvitesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/profile", profileRouter);
 app.use("/api/members", membersRouter);

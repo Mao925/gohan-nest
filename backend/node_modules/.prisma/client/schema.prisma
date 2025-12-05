@@ -8,25 +8,27 @@ datasource db {
 }
 
 model User {
-  id                    String                 @id @default(uuid())
-  email                 String                 @unique
-  passwordHash          String
-  isAdmin               Boolean                @default(false)
-  createdAt             DateTime               @default(now())
-  lineUserId            String?                @unique
-  lineDisplayName       String?
-  linePictureUrl        String?
-  availability          AvailabilitySlot[]
-  memberships           CommunityMembership[]
-  hostedGroupMeals      GroupMeal[]            @relation("GroupMealHost")
-  sentGroupMealInvites  GroupMealCandidate[]   @relation("GroupMealCandidateInviter")
-  invitedGroupMeals     GroupMealCandidate[]   @relation("GroupMealCandidateUser")
-  groupMealParticipants GroupMealParticipant[]
-  likesFrom             Like[]                 @relation("likesFrom")
-  likesTo               Like[]                 @relation("likesTo")
-  matches1              Match[]                @relation("user1")
-  matches2              Match[]                @relation("user2")
-  profile               Profile?
+  id                      String                 @id @default(uuid())
+  email                   String                 @unique
+  passwordHash            String
+  isAdmin                 Boolean                @default(false)
+  communityInvitesCreated CommunityInvite[]      @relation("CommunityInviteCreatedBy")
+  communityInvitesUsed    CommunityInvite[]      @relation("CommunityInviteUsedBy")
+  createdAt               DateTime               @default(now())
+  lineUserId              String?                @unique
+  lineDisplayName         String?
+  linePictureUrl          String?
+  availability            AvailabilitySlot[]
+  memberships             CommunityMembership[]
+  hostedGroupMeals        GroupMeal[]            @relation("GroupMealHost")
+  sentGroupMealInvites    GroupMealCandidate[]   @relation("GroupMealCandidateInviter")
+  invitedGroupMeals       GroupMealCandidate[]   @relation("GroupMealCandidateUser")
+  groupMealParticipants   GroupMealParticipant[]
+  likesFrom               Like[]                 @relation("likesFrom")
+  likesTo                 Like[]                 @relation("likesTo")
+  matches1                Match[]                @relation("user1")
+  matches2                Match[]                @relation("user2")
+  profile                 Profile?
 }
 
 model Profile {
@@ -55,11 +57,31 @@ model Community {
   id          String                @id @default(uuid())
   name        String
   inviteCode  String                @unique
+  invites     CommunityInvite[]
   createdAt   DateTime              @default(now())
   memberships CommunityMembership[]
   groupMeals  GroupMeal[]
   likes       Like[]
   matches     Match[]
+}
+
+model CommunityInvite {
+  id          String    @id @default(uuid())
+  token       String    @unique
+  communityId String
+  community   Community @relation(fields: [communityId], references: [id])
+
+  createdByUserId String
+  createdByUser   User   @relation("CommunityInviteCreatedBy", fields: [createdByUserId], references: [id])
+
+  usedByUserId String?
+  usedByUser   User?   @relation("CommunityInviteUsedBy", fields: [usedByUserId], references: [id])
+
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+
+  @@index([communityId])
 }
 
 model CommunityMembership {

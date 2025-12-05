@@ -52,6 +52,10 @@ export const ENABLE_RESET_LIKE_ENDPOINT = process.env.ENABLE_RESET_LIKE_ENDPOINT
 export const DEV_RESET_LIKE_ENDPOINT = process.env.DEV_RESET_LIKE_ENDPOINT ||
     process.env.NEXT_PUBLIC_DEV_RESET_LIKE_ENDPOINT;
 export const SESSION_SECRET = sessionSecret;
+const parsedInviteTokenTtlHours = Number(process.env.INVITE_TOKEN_TTL_HOURS ?? "168");
+export const INVITE_TOKEN_TTL_HOURS = Number.isFinite(parsedInviteTokenTtlHours) && parsedInviteTokenTtlHours > 0
+    ? parsedInviteTokenTtlHours
+    : 168;
 const missingLineEnv = [
     { key: "LINE_LOGIN_CHANNEL_ID", value: LINE_LOGIN_CHANNEL_ID },
     { key: "LINE_LOGIN_CHANNEL_SECRET", value: LINE_LOGIN_CHANNEL_SECRET },
