@@ -1,11 +1,14 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
-import { AvailabilityStatus, GroupMealParticipantStatus, TimeSlot } from '@prisma/client';
+import { AvailabilityStatus, TimeSlot } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { LINE_MESSAGING_CHANNEL_ACCESS_TOKEN, LINE_MESSAGING_CHANNEL_SECRET } from '../config.js';
 import { getTodayWeekdayInJst } from '../utils/date.js';
 import { pushAvailabilityMessage } from '../lib/lineMessages.js';
 const lineWebhookRouter = Router();
+const GO_STATUS = 'GO';
+const NOT_GO_STATUS = 'NOT_GO';
+const PENDING_STATUS = 'PENDING';
 function verifySignature(signature, rawBody) {
     if (!signature || !LINE_MESSAGING_CHANNEL_SECRET || !rawBody) {
         console.warn('verifySignature: missing param', {
@@ -151,19 +154,19 @@ lineWebhookRouter.post('/', async (req, res) => {
                 continue;
             }
             const newStatus = action === 'GO'
-                ? GroupMealParticipantStatus.GO
+                ? GO_STATUS
                 : action === 'NOT_GO'
-                    ? GroupMealParticipantStatus.NOT_GO
-                    : GroupMealParticipantStatus.PENDING;
+                    ? NOT_GO_STATUS
+                    : PENDING_STATUS;
             if (newStatus !== participant.status) {
                 await prisma.groupMealParticipant.update({
                     where: { id: participant.id },
                     data: { status: newStatus }
                 });
             }
-            const replyText = newStatus === GroupMealParticipantStatus.GO
+            const replyText = newStatus === GO_STATUS
                 ? '参加ステータスを「行く」に更新しました！'
-                : newStatus === GroupMealParticipantStatus.NOT_GO
+                : newStatus === NOT_GO_STATUS
                     ? '参加ステータスを「行かない」に更新しました。'
                     : '参加ステータスを更新しました。';
             await replyToLine(replyToken, replyText);
