@@ -34,6 +34,7 @@ export type UserPayload = {
   name: string;
   email: string;
   isAdmin: boolean;
+  hasCompletedOnboarding: boolean;
   communityStatus: CommunityStatus;
   profile: ProfileResponse | null;
 };
@@ -46,6 +47,7 @@ export function toUserPayload(user: UserWithProfile, communityStatus: CommunityS
     name: user.profile?.name || '',
     email: user.email,
     isAdmin: user.isAdmin,
+    hasCompletedOnboarding: user.hasCompletedOnboarding,
     communityStatus,
     profile: user.profile ? buildProfileResponse(user.profile) : null
   };
