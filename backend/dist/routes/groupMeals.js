@@ -84,6 +84,39 @@ const updateGroupMealSchema = z.object({
     meetingPlace: z.string().trim().max(255).optional(),
     meetUrl: meetUrlSchema,
 });
+const editableGroupMealFieldsSchema = z
+    .object({
+    title: z.string().trim().max(255).optional(),
+    date: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, "date must be in YYYY-MM-DD format")
+        .optional(),
+    timeSlot: z.nativeEnum(TimeSlot).optional(),
+    gatherTime: z
+        .union([z.string().regex(/^\d{2}:\d{2}$/), z.null()])
+        .optional(),
+    capacity: z.number().int().positive().optional(),
+    nearestStation: z
+        .union([z.string().trim().min(1).max(255), z.null()])
+        .optional(),
+    budget: z.nativeEnum(GroupMealBudget).nullable().optional(),
+})
+    .strict();
+const EDITABLE_GROUP_MEAL_KEYS = [
+    "title",
+    "date",
+    "timeSlot",
+    "gatherTime",
+    "capacity",
+    "nearestStation",
+    "budget",
+];
+function hasEditableGroupMealFields(body) {
+    if (!body || typeof body !== "object") {
+        return false;
+    }
+    return EDITABLE_GROUP_MEAL_KEYS.some((key) => Object.prototype.hasOwnProperty.call(body, key));
+}
 const inviteSchema = z.object({
     userIds: z.array(z.string().uuid()).min(1),
 });
@@ -303,6 +336,23 @@ function buildGroupMealPayload(groupMeal, currentUserId, opts = {}) {
         participants,
     };
 }
+function buildGroupMealDetailResponse(groupMeal, currentUserId) {
+    const payload = buildGroupMealPayload(groupMeal, currentUserId);
+    const gatherTime = groupMeal.meetingTimeMinutes != null
+        ? formatMinutesToTimeString(groupMeal.meetingTimeMinutes)
+        : null;
+    return {
+        ...payload,
+        gatherTime,
+        organizer: {
+            id: groupMeal.hostUserId,
+            name: groupMeal.host.profile?.name || "",
+            profileImageUrl: groupMeal.host.profile?.profileImageUrl ?? null,
+        },
+        nearestStation: payload.nearestStation,
+        budgetOption: payload.budget,
+    };
+}
 async function attachGroupMealRelations(groupMeals) {
     if (groupMeals.length === 0)
         return [];
@@ -510,6 +560,120 @@ groupMealsRouter.post("/", requireAdmin, async (req, res) => {
         return res.status(500).json({ message: "Internal server error" });
     }
 });
+groupMealsRouter.patch("/:groupMealId", async (req, res, next) => {
+    if (!hasEditableGroupMealFields(req.body)) {
+        return next();
+    }
+    const parsedParams = groupMealIdParamSchema.safeParse(req.params);
+    if (!parsedParams.success) {
+        return res
+            .status(400)
+            .json({
+            message: "Invalid group meal id",
+            issues: parsedParams.error.flatten(),
+        });
+    }
+    const parsedBody = editableGroupMealFieldsSchema.safeParse(req.body);
+    if (!parsedBody.success) {
+        return res
+            .status(400)
+            .json({ message: "Invalid body", issues: parsedBody.error.flatten() });
+    }
+    const groupMealId = parsedParams.data.groupMealId;
+    const userId = req.user.userId;
+    const isAdmin = Boolean(req.user?.isAdmin);
+    const membership = isAdmin
+        ? null
+        : await getApprovedMembership(userId);
+    if (!isAdmin && !membership) {
+        return res.status(400).json(membershipRequiredResponse);
+    }
+    const groupMeal = await prisma.groupMeal.findUnique({
+        where: { id: groupMealId },
+        select: {
+            id: true,
+            communityId: true,
+            hostUserId: true,
+            timeSlot: true,
+            locationName: true,
+        },
+    });
+    if (!groupMeal) {
+        return res.status(404).json({ message: "Group meal not found" });
+    }
+    if (!isAdmin && groupMeal.communityId !== membership.communityId) {
+        return res.status(403).json({ message: "別のコミュニティの募集です" });
+    }
+    const isOrganizer = groupMeal.hostUserId === userId;
+    if (!isAdmin && !isOrganizer) {
+        return res.status(403).json({ message: "Forbidden" });
+    }
+    const data = {};
+    try {
+        const body = parsedBody.data;
+        if (body.title !== undefined) {
+            data.title = body.title;
+        }
+        if (body.date !== undefined) {
+            const date = parseScheduleDate(body.date);
+            data.date = date;
+            data.weekday = getWeekdayFromDate(date);
+        }
+        if (body.timeSlot !== undefined) {
+            data.timeSlot = body.timeSlot;
+        }
+        if (body.gatherTime !== undefined) {
+            if (body.gatherTime === null) {
+                data.meetingTimeMinutes = null;
+            }
+            else {
+                const targetTimeSlot = body.timeSlot ?? groupMeal.timeSlot;
+                const minutes = parseTimeToMinutes(body.gatherTime);
+                const timeBand = mapTimeSlotToTimeBand(targetTimeSlot);
+                validateMeetingTime(minutes, timeBand);
+                data.meetingTimeMinutes = minutes;
+            }
+        }
+        if (body.capacity !== undefined) {
+            data.capacity = body.capacity;
+        }
+        if (body.nearestStation !== undefined) {
+            data.meetingPlace = body.nearestStation;
+            if (body.nearestStation === null) {
+                data.locationName = null;
+            }
+            else if (groupMeal.locationName == null) {
+                data.locationName = body.nearestStation;
+            }
+        }
+        if (body.budget !== undefined) {
+            data.budget = body.budget;
+        }
+    }
+    catch (error) {
+        return res.status(400).json({ message: error.message });
+    }
+    if (Object.keys(data).length === 0) {
+        return res.status(400).json({ message: "更新対象がありません" });
+    }
+    try {
+        await prisma.groupMeal.update({
+            where: { id: groupMealId },
+            data,
+        });
+        const updated = await fetchGroupMeal(groupMealId);
+        if (!updated) {
+            return res
+                .status(500)
+                .json({ message: "Failed to load updated group meal" });
+        }
+        return res.json(buildGroupMealDetailResponse(updated, userId));
+    }
+    catch (error) {
+        console.error("EDIT GROUP MEAL CONDITIONS ERROR:", error);
+        return res.status(500).json({ message: "Failed to update group meal" });
+    }
+});
 groupMealsRouter.patch("/:id", async (req, res) => {
     const membership = await getApprovedMembership(req.user.userId);
     if (!membership) {
@@ -708,21 +872,7 @@ groupMealsRouter.get("/:groupMealId", async (req, res) => {
             });
             return res.status(404).json({ message: "Group meal not found" });
         }
-        const payload = buildGroupMealPayload(groupMeal, userId);
-        const gatherTime = groupMeal.meetingTimeMinutes != null
-            ? formatMinutesToTimeString(groupMeal.meetingTimeMinutes)
-            : null;
-        return res.json({
-            ...payload,
-            gatherTime,
-            organizer: {
-                id: groupMeal.hostUserId,
-                name: groupMeal.host.profile?.name || "",
-                profileImageUrl: groupMeal.host.profile?.profileImageUrl ?? null,
-            },
-            nearestStation: payload.nearestStation,
-            budgetOption: payload.budget,
-        });
+        return res.json(buildGroupMealDetailResponse(groupMeal, userId));
     }
     catch (error) {
         console.error("GET /api/group-meals/:groupMealId error", error);
