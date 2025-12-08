@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
-import { buildProfileResponse } from '../utils/user.js';
+import { buildProfileResponse, buildUserPayload } from '../utils/user.js';
 const paramsSchema = z.object({
     userId: z.string().uuid()
 });
@@ -52,5 +52,22 @@ userProfilesRouter.get('/:userId/profile', async (req, res) => {
     catch (error) {
         console.error('GET /api/users/:userId/profile failed', error);
         return res.status(500).json({ message: 'Internal server error' });
+    }
+});
+userProfilesRouter.patch('/me/onboarding-completed', async (req, res) => {
+    if (!req.user) {
+        return res.status(401).json({ message: 'Unauthorized' });
+    }
+    try {
+        await prisma.user.update({
+            where: { id: req.user.userId },
+            data: { hasCompletedOnboarding: true }
+        });
+        const payload = await buildUserPayload(req.user.userId);
+        return res.json(payload);
+    }
+    catch (error) {
+        console.error('PATCH /api/users/me/onboarding-completed failed', error);
+        return res.status(500).json({ message: 'Failed to update onboarding status' });
     }
 });

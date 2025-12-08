@@ -7,6 +7,7 @@ export function toUserPayload(user, communityStatus) {
         name: user.profile?.name || '',
         email: user.email,
         isAdmin: user.isAdmin,
+        hasCompletedOnboarding: user.hasCompletedOnboarding,
         communityStatus,
         profile: user.profile ? buildProfileResponse(user.profile) : null
     };
