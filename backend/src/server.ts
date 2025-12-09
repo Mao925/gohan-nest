@@ -35,6 +35,7 @@ import { lineRouter } from "./routes/line.js";
 import { lineWebhookRouter } from "./routes/lineWebhook.js";
 import { autoGroupMealsRouter } from "./routes/autoGroupMeals.js";
 import { authMiddleware } from "./middleware/auth.js";
+import browserContextRouter from "./routes/browserContext.js";
 
 console.log(`Starting API server in ${NODE_ENV} mode`);
 
@@ -116,6 +117,7 @@ app.use("/api/availability", availabilityRouter);
 // フロントからの `POST /api/group-meals` が Next.js 側の `/api` ではなくこの Express ルートに届くようにしてください。
 app.use("/api/group-meals", groupMealsRouter);
 app.use("/api/auto-group-meals", autoGroupMealsRouter);
+app.use("/api/browser-context", browserContextRouter);
 
 // 👇 LINE 関連ルート
 app.use("/api/line", lineRouter);
