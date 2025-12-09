@@ -230,6 +230,7 @@ model GroupMealParticipant {
   groupMealId String
   userId      String
   isHost      Boolean                    @default(false)
+  isCreator   Boolean                    @default(false)
   status      GroupMealParticipantStatus @default(INVITED)
   createdAt   DateTime                   @default(now())
   updatedAt   DateTime                   @updatedAt
