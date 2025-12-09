@@ -1,5 +1,4 @@
-import { GroupMealMode } from '@prisma/client';
-import { FRONTEND_URL, LINE_MESSAGING_CHANNEL_ACCESS_TOKEN } from '../config.js';
+import { FRONTEND_BASE_URL, FRONTEND_URL, LINE_MESSAGING_CHANNEL_ACCESS_TOKEN } from '../config.js';
 const LINE_MESSAGING_API_URL = 'https://api.line.me/v2/bot/message/push';
 const JP_WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 function formatJapaneseDateLabel(date) {
@@ -103,37 +102,32 @@ async function sendLineTextMessage(lineUserId, text) {
         throw new Error(`LINE text push failed (${response.status}): ${errorBody}`);
     }
 }
+export function buildGroupMealInvitationMessage(params) {
+    const { title, groupMealId, baseUrl = FRONTEND_BASE_URL } = params;
+    const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
+    const url = `${normalizedBaseUrl}/group-meals/${groupMealId}`;
+    const safeTitle = title ?? '';
+    const text = [
+        '🍚 ご飯会のお誘いです',
+        '',
+        `タイトル：「${safeTitle}」`,
+        '',
+        'この会に「あなたにも来てほしい」と思っている人がいます。',
+        'どんな会かは、招待ページを開いてみてください。',
+        '',
+        '▼招待ページ',
+        url
+    ].join('\n');
+    return { text, url };
+}
 export async function pushGroupMealInviteNotification(params) {
-    const { lineUserId, mode, title } = params;
+    const { lineUserId, groupMealId, title } = params;
     if (!lineUserId)
         return;
-    const baseUrl = (FRONTEND_URL || 'https://gohan-expo.vercel.app').replace(/\/$/, '');
-    const loginUrl = `${baseUrl}/login`;
-    const inviteTitle = title ?? '';
-    let text;
-    if (mode === GroupMealMode.REAL) {
-        text =
-            `招待状：${inviteTitle}\n` +
-                'この会に呼ばれた理由は、開けばわかるはず。\n' +
-                'メンバーは既に揃っています。あとは、あなたが日程を決めるだけ。\n\n' +
-                '▼ログインはこちらから🐥\n' +
-                loginUrl;
-    }
-    else if (mode === GroupMealMode.MEET) {
-        text =
-            'まだ、一人でYouTube見てるの？\n' +
-                '実は今、きみと話したい人がMeetで待ってるみたい！\n\n' +
-                '▼ログインはこちらから☃️\n' +
-                loginUrl;
-    }
-    else {
-        text =
-            `招待状：${inviteTitle}\n` +
-                'この会に呼ばれた理由は、開けばわかるはず。\n' +
-                'メンバーは既に揃っています。あとは、あなたが日程を決めるだけ。\n\n' +
-                '▼ログインはこちらから🐥\n' +
-                loginUrl;
-    }
+    const { text } = buildGroupMealInvitationMessage({
+        title,
+        groupMealId
+    });
     await sendLineTextMessage(lineUserId, text);
 }
 export async function pushNewMatchNotification(lineUserId) {
