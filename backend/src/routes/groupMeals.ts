@@ -172,9 +172,7 @@ const invitationIdParamSchema = z.object({
   invitationId: z.string().uuid(),
 });
 
-const cancelInvitationParamsSchema = z.object({
-  invitationId: z.string().min(1),
-});
+const cancelInvitationParamsSchema = invitationIdParamSchema;
 
 function parseScheduleDate(dateString: string): Date {
   const parsed = new Date(`${dateString}T00:00:00Z`);
@@ -1461,12 +1459,32 @@ groupMealsRouter.post("/invitations/:invitationId/cancel", async (req, res) => {
   }
 
   try {
-    await prisma.groupMealCandidate.update({
-      where: { id: invitation.id },
-      data: {
-        isCanceled: true,
-        canceledAt: new Date(),
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.groupMealCandidate.update({
+        where: { id: invitation.id },
+        data: {
+          isCanceled: true,
+          canceledAt: new Date(),
+        },
+      });
+      await tx.groupMealParticipant.update({
+        where: {
+          groupMealId_userId: {
+            groupMealId: invitation.groupMealId,
+            userId: invitation.userId,
+          },
+        },
+        data: {
+          status: GroupMealParticipantStatus.CANCELLED,
+        },
+      });
+      await syncGroupMealStatus(
+        tx,
+        invitation.groupMealId,
+        invitation.groupMeal.capacity,
+        invitation.groupMeal.status,
+        invitation.groupMeal.hostUserId
+      );
     });
 
     return res.status(200).json({ ok: true });
