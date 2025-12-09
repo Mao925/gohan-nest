@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { signToken } from '../utils/jwt.js';
+import { setAuthCookie } from '../utils/authCookies.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { buildUserPayload } from '../utils/user.js';
 import { getApprovedMembership } from '../utils/membership.js';
@@ -49,10 +50,9 @@ function ensureLineEnv() {
   );
 }
 
-function buildFrontendRedirect(
-  token: string,
-  isNewUser: boolean,
-  redirectPath = '/auth/line/callback'
+function buildFrontendUrl(
+  redirectPath = '/auth/line/callback',
+  query?: Record<string, string>
 ) {
   const base =
     FRONTEND_BASE_URL || FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
@@ -63,8 +63,11 @@ function buildFrontendRedirect(
     url = new URL(`https://${base}`);
   }
   url.pathname = redirectPath;
-  url.searchParams.set('token', token);
-  url.searchParams.set('newUser', String(isNewUser)); // "true" or "false"
+  if (query) {
+    Object.entries(query).forEach(([key, value]) => {
+      url.searchParams.set(key, value);
+    });
+  }
   return url.toString();
 }
 
@@ -419,16 +422,9 @@ authRouter.get('/line/callback', async (req, res) => {
     // login フローで user が存在しない場合 → 新規作成せずエラーでフロントに返す
     if (!user && flow === 'login') {
       console.log('[LINE CALLBACK] login flow but no user found, redirecting with error');
-      const base = FRONTEND_BASE_URL || FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
-      let url: URL;
-      try {
-        url = new URL(base);
-      } catch {
-        url = new URL(`https://${base}`);
-      }
-      url.pathname = '/auth/line/callback';
-      url.searchParams.set('error', 'not_registered');
-      return res.redirect(url.toString());
+      return res.redirect(
+        buildFrontendUrl('/auth/line/callback', { error: 'not_registered' })
+      );
     }
 
     // 上記以外:
@@ -482,8 +478,10 @@ authRouter.get('/line/callback', async (req, res) => {
       isAdmin: user!.isAdmin
     });
 
-    const redirectPath = flow === 'login' ? '/likes' : '/community/join';
-    const redirectUrl = buildFrontendRedirect(token, isNewUser, redirectPath);
+    setAuthCookie(res, token);
+
+    const redirectPath = isNewUser ? '/community/join' : '/group-meals';
+    const redirectUrl = buildFrontendUrl(redirectPath);
     return res.redirect(redirectUrl);
   } catch (error: any) {
     console.error('LINE callback error:', error);
