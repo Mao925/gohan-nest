@@ -1,15 +1,24 @@
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../utils/jwt.js';
+import { getAuthCookie } from '../utils/authCookies.js';
 
 export function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
-  if (!header) {
-    return res.status(401).json({ message: 'Missing Authorization header' });
+  let token: string | undefined;
+
+  if (header) {
+    const [scheme, ...rest] = header.split(' ');
+    if (scheme?.toLowerCase() === 'bearer' && rest.length > 0) {
+      token = rest.join(' ');
+    }
   }
 
-  const [scheme, token] = header.split(' ');
-  if (scheme !== 'Bearer' || !token) {
-    return res.status(401).json({ message: 'Invalid Authorization header' });
+  if (!token) {
+    token = getAuthCookie(req);
+  }
+
+  if (!token) {
+    return res.status(401).json({ message: 'Authorization token missing' });
   }
 
   try {
