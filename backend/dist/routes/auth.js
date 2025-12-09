@@ -5,10 +5,11 @@ import crypto from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { signToken } from '../utils/jwt.js';
+import { setAuthCookie } from '../utils/authCookies.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { buildUserPayload } from '../utils/user.js';
 import { getApprovedMembership } from '../utils/membership.js';
-import { ADMIN_INVITE_CODE, CLIENT_ORIGIN, FRONTEND_URL, LINE_LOGIN_CHANNEL_ID, LINE_LOGIN_CHANNEL_SECRET, LINE_LOGIN_REDIRECT_URI } from '../config.js';
+import { ADMIN_INVITE_CODE, CLIENT_ORIGIN, FRONTEND_BASE_URL, FRONTEND_URL, LINE_LOGIN_CHANNEL_ID, LINE_LOGIN_CHANNEL_SECRET, LINE_LOGIN_REDIRECT_URI } from '../config.js';
 import { generateSignedLineState, verifySignedLineState } from '../utils/lineState.js';
 const STATE_TTL_MS = 1000 * 60 * 10;
 function generateRandomString(bytes = 16) {
@@ -19,8 +20,8 @@ function ensureLineEnv() {
         LINE_LOGIN_CHANNEL_SECRET &&
         LINE_LOGIN_REDIRECT_URI);
 }
-function buildFrontendRedirect(token, isNewUser) {
-    const base = FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
+function buildFrontendUrl(redirectPath = '/auth/line/callback', query) {
+    const base = FRONTEND_BASE_URL || FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
     let url;
     try {
         url = new URL(base);
@@ -28,9 +29,12 @@ function buildFrontendRedirect(token, isNewUser) {
     catch {
         url = new URL(`https://${base}`);
     }
-    url.pathname = '/auth/line/callback';
-    url.searchParams.set('token', token);
-    url.searchParams.set('newUser', String(isNewUser)); // "true" or "false"
+    url.pathname = redirectPath;
+    if (query) {
+        Object.entries(query).forEach(([key, value]) => {
+            url.searchParams.set(key, value);
+        });
+    }
     return url.toString();
 }
 const registerSchema = z.object({
@@ -282,7 +286,7 @@ authRouter.get('/line/callback', async (req, res) => {
     if (!verification.valid) {
         return res.status(400).json({ message: 'Invalid or expired state' });
     }
-    const intent = verification.payload.intent; // "login" | "register"
+    const flow = verification.payload.flow; // "login" | "register"
     try {
         const tokenResponse = await fetch('https://api.line.me/oauth2/v2.1/token', {
             method: 'POST',
@@ -322,25 +326,15 @@ authRouter.get('/line/callback', async (req, res) => {
         });
         const placeholderEmail = `line_${profileJson.userId}@line.local`;
         let isNewUser = false;
-        // login intent で user が存在しない場合 → 新規作成せずエラーでフロントに返す
-        if (!user && intent === 'login') {
-            console.log('[LINE CALLBACK] login intent but no user found, redirecting with error');
-            const base = FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
-            let url;
-            try {
-                url = new URL(base);
-            }
-            catch {
-                url = new URL(`https://${base}`);
-            }
-            url.pathname = '/auth/line/callback';
-            url.searchParams.set('error', 'not_registered');
-            return res.redirect(url.toString());
+        // login フローで user が存在しない場合 → 新規作成せずエラーでフロントに返す
+        if (!user && flow === 'login') {
+            console.log('[LINE CALLBACK] login flow but no user found, redirecting with error');
+            return res.redirect(buildFrontendUrl('/auth/line/callback', { error: 'not_registered' }));
         }
         // 上記以外:
-        // - intent === 'register' で user がまだ無い → 新規作成 (isNewUser=true)
-        // - intent === 'register' で user 既にあり → 更新 (isNewUser=false)
-        // - intent === 'login' で user 既にあり → 更新 (isNewUser=false)
+        // - flow === 'register' で user がまだ無い → 新規作成 (isNewUser=true)
+        // - flow === 'register' で user 既にあり → 更新 (isNewUser=false)
+        // - flow === 'login' で user 既にあり → 更新 (isNewUser=false)
         if (!user) {
             const hashedPassword = await bcrypt.hash(generateRandomString(24), 10);
             isNewUser = true;
@@ -384,7 +378,9 @@ authRouter.get('/line/callback', async (req, res) => {
             email: user.email,
             isAdmin: user.isAdmin
         });
-        const redirectUrl = buildFrontendRedirect(token, isNewUser);
+        setAuthCookie(res, token);
+        const redirectPath = isNewUser ? '/community/join' : '/group-meals';
+        const redirectUrl = buildFrontendUrl(redirectPath);
         return res.redirect(redirectUrl);
     }
     catch (error) {

@@ -43,7 +43,6 @@ export const LINE_MESSAGING_CHANNEL_SECRET = process.env.LINE_MESSAGING_CHANNEL_
 export const LINE_MESSAGING_CHANNEL_ACCESS_TOKEN = process.env.LINE_MESSAGING_CHANNEL_ACCESS_TOKEN;
 export const ENABLE_LINE_DAILY_AVAILABILITY_PUSH = process.env.ENABLE_LINE_DAILY_AVAILABILITY_PUSH !== "false";
 export const ENABLE_LINE_GROUPMEAL_REMINDER = process.env.ENABLE_LINE_GROUPMEAL_REMINDER !== "false";
-export const AUTO_APPROVE_MEMBERS = process.env.AUTO_APPROVE_MEMBERS === "true";
 export const SEED_ADMIN_EMAIL = process.env.SEED_ADMIN_EMAIL || "admin@example.com";
 export const SEED_ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD || "changeme";
 export const ENABLE_SEED_ADMIN = process.env.ENABLE_SEED_ADMIN === "true";

@@ -8,7 +8,7 @@ export const AUTH_COOKIE_NAME = 'gohan_auth_token';
 const baseCookieOptions = {
   httpOnly: true,
   secure: IS_PRODUCTION,
-  sameSite: 'lax' as const,
+  sameSite: (IS_PRODUCTION ? 'none' : 'lax') as const,
   path: '/',
   maxAge: AUTH_COOKIE_MAX_AGE
 };

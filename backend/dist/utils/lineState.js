@@ -20,13 +20,13 @@ function timingSafeEquals(a, b) {
 function randomHex(bytes = 16) {
     return crypto.randomBytes(bytes).toString("hex");
 }
-// intent を state に含める
-export function generateSignedLineState(intent = "login") {
+// flow を state に含める
+export function generateSignedLineState(flow = "login") {
     const payload = {
         value: randomHex(16),
         nonce: randomHex(16),
         createdAt: Date.now(),
-        intent,
+        flow,
     };
     const payloadB64 = base64UrlEncode(JSON.stringify(payload));
     const signature = sign(payloadB64, SESSION_SECRET);
@@ -60,12 +60,16 @@ export function verifySignedLineState(token, ttlMs) {
         return { valid: false, reason: "invalid_payload_shape" };
     }
     // intent が無い古いトークンは login 扱いにフォールバック
-    const intent = payload.intent === "register" ? "register" : "login";
+    const flow = payload.flow === "register"
+        ? "register"
+        : payload.intent === "register"
+            ? "register"
+            : "login";
     const normalizedPayload = {
         value: payload.value,
         nonce: payload.nonce,
         createdAt: payload.createdAt,
-        intent,
+        flow,
     };
     if (Date.now() - normalizedPayload.createdAt > ttlMs) {
         return { valid: false, reason: "expired" };

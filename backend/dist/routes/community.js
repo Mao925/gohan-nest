@@ -3,10 +3,15 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { buildCommunitySelfStatus, getCommunityStatus } from '../utils/membership.js';
-import { AUTO_APPROVE_MEMBERS } from '../config.js';
-const joinSchema = z.object({
-    communityCode: z.string().length(8),
-    communityName: z.string().min(1)
+const joinSchema = z
+    .object({
+    communityName: z.string().min(1),
+    joinCode: z.string().length(8).optional(),
+    communityCode: z.string().length(8).optional()
+})
+    .refine((value) => !!(value.joinCode ?? value.communityCode), {
+    path: ['joinCode', 'communityCode'],
+    message: 'joinCode is required'
 });
 export const communityRouter = Router();
 communityRouter.post('/join', authMiddleware, async (req, res) => {
@@ -14,15 +19,16 @@ communityRouter.post('/join', authMiddleware, async (req, res) => {
     if (!parsed.success) {
         return res.status(400).json({ message: 'Invalid invite code', issues: parsed.error.flatten() });
     }
-    const community = await prisma.community.findUnique({ where: { inviteCode: parsed.data.communityCode } });
+    const joinCode = parsed.data.joinCode ?? parsed.data.communityCode;
+    const community = await prisma.community.findUnique({ where: { inviteCode: joinCode } });
     if (!community) {
         return res.status(404).json({ message: 'Community not found' });
     }
     if (community.name.toLowerCase() !== parsed.data.communityName.trim().toLowerCase()) {
         return res.status(400).json({ message: 'Community name/code mismatch' });
     }
-    const nextStatus = AUTO_APPROVE_MEMBERS ? 'approved' : 'pending';
-    const responseStatus = nextStatus === 'approved' ? 'APPROVED' : 'PENDING';
+    const nextStatus = 'approved';
+    const responseStatus = 'APPROVED';
     await prisma.communityMembership.upsert({
         where: { userId_communityId: { userId: req.user.userId, communityId: community.id } },
         update: { status: nextStatus },
