@@ -1213,7 +1213,9 @@ groupMealsRouter.get("/:id/candidates", async (req, res) => {
   }
 
   const participantIds = new Set(
-    groupMeal.participants.map((p: any) => p.userId)
+    groupMeal.participants
+      .filter((p: any) => isActiveParticipant(p.status))
+      .map((p: any) => p.userId)
   );
 
   try {
