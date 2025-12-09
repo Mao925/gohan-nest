@@ -25,6 +25,7 @@ model User {
   sentGroupMealInvites    GroupMealCandidate[]   @relation("GroupMealCandidateInviter")
   invitedGroupMeals       GroupMealCandidate[]   @relation("GroupMealCandidateUser")
   groupMealParticipants   GroupMealParticipant[]
+  createdGroupMeals       GroupMeal[]            @relation("GroupMealCreator")
   likesFrom               Like[]                 @relation("likesFrom")
   likesTo                 Like[]                 @relation("likesTo")
   matches1                Match[]                @relation("user1")
@@ -195,7 +196,8 @@ model GroupMeal {
   longitude          Float?
   meetUrl            String?
   talkTopics         String[]
-  createdById        String?
+  createdByUserId    String?
+  createdBy          User?                  @relation("GroupMealCreator", fields: [createdByUserId], references: [id])
   expiresAt          DateTime?
   community          Community              @relation(fields: [communityId], references: [id])
   hostMembership     CommunityMembership?   @relation("GroupMealHostMembership", fields: [hostMembershipId], references: [id])
