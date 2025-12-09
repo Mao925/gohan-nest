@@ -54,6 +54,10 @@ export const DEFAULT_COMMUNITY_CODE =
 export const DATABASE_URL = process.env.DATABASE_URL;
 export const CLIENT_ORIGIN = process.env.NEXT_PUBLIC_API_BASE_URL;
 export const FRONTEND_URL = process.env.FRONTEND_URL || CLIENT_ORIGIN;
+const rawFrontendBaseUrl =
+  process.env.FRONTEND_BASE_URL || process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_BASE_URL;
+export const FRONTEND_BASE_URL =
+  (rawFrontendBaseUrl || 'https://gohan-expo.vercel.app').replace(/\/$/, '');
 export const LINE_LOGIN_CHANNEL_ID = process.env.LINE_LOGIN_CHANNEL_ID;
 export const LINE_LOGIN_CHANNEL_SECRET = process.env.LINE_LOGIN_CHANNEL_SECRET;
 export const LINE_LOGIN_REDIRECT_URI = process.env.LINE_LOGIN_REDIRECT_URI;
