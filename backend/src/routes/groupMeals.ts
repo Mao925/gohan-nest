@@ -17,6 +17,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { getApprovedMembership } from "../utils/membership.js";
 import { computeExpiresAt } from "../utils/availabilityHelpers.js";
 import { pushGroupMealInviteNotification } from "../lib/lineMessages.js";
+import { canManageGroupMeal } from "../auth/permissions.js";
 
 type ApprovedMembership = NonNullable<
   Awaited<ReturnType<typeof getApprovedMembership>>
@@ -263,13 +264,6 @@ function membershipIsHost(
     return membership.id === groupMeal.hostMembershipId;
   }
   return membership.userId === groupMeal.hostUserId;
-}
-
-function requireAdmin(req: any, res: any, next: any) {
-  if (!req.user?.isAdmin) {
-    return res.status(403).json({ message: "管理者のみ利用できます" });
-  }
-  return next();
 }
 
 const updateParticipantStatusSchema = z.object({
@@ -565,8 +559,8 @@ groupMealsRouter.post("/_debug", (req, res) => {
   return res.json({ ok: true });
 });
 
-// admin ユーザーには一覧/詳細/削除のみ許可し、それ以外は弾く。一般ユーザーは全機能利用可。
-groupMealsRouter.post("/", requireAdmin, async (req, res) => {
+// 認証済みの参加メンバーなら誰でも箱を作成可能（管理者も含む）
+groupMealsRouter.post("/", async (req, res) => {
   const membership = await getApprovedMembership(req.user!.userId);
   if (!membership) {
     return res.status(400).json(membershipRequiredResponse);
@@ -693,7 +687,7 @@ groupMealsRouter.post("/", requireAdmin, async (req, res) => {
         placeLongitude,
         placeGooglePlaceId,
         budget: normalizedBudget,
-        createdById: req.user!.userId,
+        createdByUserId: req.user!.userId,
         expiresAt,
         talkTopics: [],
         participants: {
@@ -743,11 +737,10 @@ groupMealsRouter.patch("/:groupMealId", async (req, res, next) => {
   }
 
   const groupMealId = parsedParams.data.groupMealId;
-  const userId = req.user!.userId;
-  const isAdmin = Boolean(req.user?.isAdmin);
-  const membership = isAdmin
-    ? null
-    : await getApprovedMembership(userId);
+  const user = req.user!;
+  const userId = user.userId;
+  const isAdmin = Boolean(user.isAdmin);
+  const membership = isAdmin ? null : await getApprovedMembership(userId);
   if (!isAdmin && !membership) {
     return res.status(400).json(membershipRequiredResponse);
   }
@@ -760,6 +753,7 @@ groupMealsRouter.patch("/:groupMealId", async (req, res, next) => {
       hostUserId: true,
       timeSlot: true,
       locationName: true,
+      createdByUserId: true,
     },
   });
   if (!groupMeal) {
@@ -770,8 +764,7 @@ groupMealsRouter.patch("/:groupMealId", async (req, res, next) => {
     return res.status(403).json({ message: "別のコミュニティの募集です" });
   }
 
-  const isOrganizer = groupMeal.hostUserId === userId;
-  if (!isAdmin && !isOrganizer) {
+  if (!canManageGroupMeal({ user, groupMeal })) {
     return res.status(403).json({ message: "Forbidden" });
   }
 
@@ -849,8 +842,11 @@ groupMealsRouter.patch("/:groupMealId", async (req, res, next) => {
 });
 
 groupMealsRouter.patch("/:id", async (req, res) => {
-  const membership = await getApprovedMembership(req.user!.userId);
-  if (!membership) {
+  const user = req.user!;
+  const userId = user.userId;
+  const isAdmin = Boolean(user.isAdmin);
+  const membership = isAdmin ? null : await getApprovedMembership(userId);
+  if (!isAdmin && !membership) {
     return res.status(400).json(membershipRequiredResponse);
   }
 
@@ -878,7 +874,10 @@ groupMealsRouter.patch("/:id", async (req, res) => {
   if (!groupMeal) {
     return res.status(404).json({ message: "Group meal not found" });
   }
-  if (!membershipIsHost(membership, groupMeal)) {
+  if (!isAdmin && groupMeal.communityId !== membership!.communityId) {
+    return res.status(403).json({ message: "別のコミュニティの募集です" });
+  }
+  if (!canManageGroupMeal({ user, groupMeal })) {
     return res.status(403).json({ message: "ホストのみ更新できます" });
   }
 
@@ -962,7 +961,7 @@ groupMealsRouter.patch("/:id", async (req, res) => {
         .status(500)
         .json({ message: "Failed to load updated group meal" });
     }
-    return res.json(buildGroupMealPayload(enriched, req.user!.userId));
+    return res.json(buildGroupMealPayload(enriched, userId));
   } catch (error: any) {
     console.error("UPDATE GROUP MEAL ERROR:", error);
     return res.status(500).json({ message: "Failed to update group meal" });
@@ -1144,7 +1143,7 @@ groupMealsRouter.get("/:groupMealId/invitations", async (req, res) => {
   }
 });
 
-groupMealsRouter.delete("/:id", requireAdmin, async (req, res) => {
+groupMealsRouter.delete("/:id", async (req, res) => {
   const parsedParams = idParamSchema.safeParse(req.params);
   if (!parsedParams.success) {
     return res
@@ -1155,15 +1154,33 @@ groupMealsRouter.delete("/:id", requireAdmin, async (req, res) => {
       });
   }
   const groupMealId = parsedParams.data.id;
+  const user = req.user!;
+  const isAdmin = Boolean(user.isAdmin);
+  const membership = isAdmin ? null : await getApprovedMembership(user.userId);
+  if (!isAdmin && !membership) {
+    return res.status(400).json(membershipRequiredResponse);
+  }
 
   try {
     const groupMeal = await prisma.groupMeal.findUnique({
       where: { id: groupMealId },
-      select: { id: true },
+      select: {
+        id: true,
+        communityId: true,
+        createdByUserId: true,
+      },
     });
 
     if (!groupMeal) {
       return res.status(404).json({ message: "Group meal not found" });
+    }
+
+    if (!isAdmin && groupMeal.communityId !== membership!.communityId) {
+      return res.status(403).json({ message: "別のコミュニティの募集です" });
+    }
+
+    if (!canManageGroupMeal({ user, groupMeal })) {
+      return res.status(403).json({ message: "Forbidden" });
     }
 
     await prisma.$transaction([
