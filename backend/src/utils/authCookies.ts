@@ -5,10 +5,11 @@ const AUTH_COOKIE_MAX_AGE = 1000 * 60 * 60 * 24 * 7; // 7 days in milliseconds
 
 export const AUTH_COOKIE_NAME = 'gohan_auth_token';
 
+const sameSiteSetting: 'lax' | 'none' = IS_PRODUCTION ? 'none' : 'lax';
 const baseCookieOptions = {
   httpOnly: true,
   secure: IS_PRODUCTION,
-  sameSite: (IS_PRODUCTION ? 'none' : 'lax') as const,
+  sameSite: sameSiteSetting,
   path: '/',
   maxAge: AUTH_COOKIE_MAX_AGE
 };

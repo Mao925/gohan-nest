@@ -1,10 +1,11 @@
 import { IS_PRODUCTION } from '../config.js';
 const AUTH_COOKIE_MAX_AGE = 1000 * 60 * 60 * 24 * 7; // 7 days in milliseconds
 export const AUTH_COOKIE_NAME = 'gohan_auth_token';
+const sameSiteSetting = IS_PRODUCTION ? 'none' : 'lax';
 const baseCookieOptions = {
     httpOnly: true,
     secure: IS_PRODUCTION,
-    sameSite: 'lax',
+    sameSite: sameSiteSetting,
     path: '/',
     maxAge: AUTH_COOKIE_MAX_AGE
 };
