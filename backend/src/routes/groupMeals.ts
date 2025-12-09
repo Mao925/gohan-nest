@@ -172,6 +172,10 @@ const invitationIdParamSchema = z.object({
   invitationId: z.string().uuid(),
 });
 
+const cancelInvitationParamsSchema = z.object({
+  invitationId: z.string().min(1),
+});
+
 function parseScheduleDate(dateString: string): Date {
   const parsed = new Date(`${dateString}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime())) {
@@ -1424,19 +1428,9 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
 });
 
 groupMealsRouter.post("/invitations/:invitationId/cancel", async (req, res) => {
-  const membership = await getApprovedMembership(req.user!.userId);
-  if (!membership) {
-    return res.status(400).json(membershipRequiredResponse);
-  }
-
-  const parsedParams = invitationIdParamSchema.safeParse(req.params);
+  const parsedParams = cancelInvitationParamsSchema.safeParse(req.params);
   if (!parsedParams.success) {
-    return res
-      .status(400)
-      .json({
-        message: "Invalid invitation id",
-        issues: parsedParams.error.flatten(),
-      });
+    return res.status(400).json({ message: "Invalid invitation id" });
   }
 
   const invitation = await prisma.groupMealCandidate.findUnique({
@@ -1447,17 +1441,23 @@ groupMealsRouter.post("/invitations/:invitationId/cancel", async (req, res) => {
     return res.status(404).json({ message: "Invitation not found" });
   }
 
-  if (invitation.groupMeal.communityId !== membership.communityId) {
-    return res.status(403).json({ message: "別のコミュニティの募集です" });
+  const currentUserId = req.user?.userId;
+  if (!currentUserId) {
+    return res.status(401).json({ message: "Unauthorized" });
   }
-  if (!membershipIsHost(membership, invitation.groupMeal)) {
+
+  const isOrganizer = invitation.groupMeal.hostUserId === currentUserId;
+  const isInvitee = invitation.userId === currentUserId;
+  const isAdmin = Boolean(req.user?.isAdmin);
+
+  if (!isOrganizer && !isInvitee && !isAdmin) {
     return res
       .status(403)
-      .json({ message: "キャンセルできるのはホストのみです" });
+      .json({ message: "Not allowed to cancel this invitation" });
   }
 
   if (invitation.isCanceled) {
-    return res.status(204).send();
+    return res.status(200).json({ ok: true });
   }
 
   try {
@@ -1469,10 +1469,9 @@ groupMealsRouter.post("/invitations/:invitationId/cancel", async (req, res) => {
       },
     });
 
-    // TODO: send cancellation notification via LINE when needed
-    return res.status(204).send();
+    return res.status(200).json({ ok: true });
   } catch (error: any) {
-    console.error("CANCEL INVITATION ERROR:", error);
+    console.error("CANCEL GROUP MEAL INVITATION ERROR:", error);
     return res.status(500).json({ message: "Failed to cancel invitation" });
   }
 });
