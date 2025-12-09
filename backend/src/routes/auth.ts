@@ -11,6 +11,7 @@ import { getApprovedMembership } from '../utils/membership.js';
 import {
   ADMIN_INVITE_CODE,
   CLIENT_ORIGIN,
+  FRONTEND_BASE_URL,
   FRONTEND_URL,
   LINE_LOGIN_CHANNEL_ID,
   LINE_LOGIN_CHANNEL_SECRET,
@@ -48,15 +49,20 @@ function ensureLineEnv() {
   );
 }
 
-function buildFrontendRedirect(token: string, isNewUser: boolean) {
-  const base = FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
+function buildFrontendRedirect(
+  token: string,
+  isNewUser: boolean,
+  redirectPath = '/auth/line/callback'
+) {
+  const base =
+    FRONTEND_BASE_URL || FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
   let url: URL;
   try {
     url = new URL(base);
   } catch {
     url = new URL(`https://${base}`);
   }
-  url.pathname = '/auth/line/callback';
+  url.pathname = redirectPath;
   url.searchParams.set('token', token);
   url.searchParams.set('newUser', String(isNewUser)); // "true" or "false"
   return url.toString();
@@ -361,7 +367,7 @@ authRouter.get('/line/callback', async (req, res) => {
     return res.status(400).json({ message: 'Invalid or expired state' });
   }
 
-  const intent = verification.payload.intent; // "login" | "register"
+  const flow = verification.payload.flow; // "login" | "register"
 
   try {
     const tokenResponse = await fetch('https://api.line.me/oauth2/v2.1/token', {
@@ -410,10 +416,10 @@ authRouter.get('/line/callback', async (req, res) => {
     const placeholderEmail = `line_${profileJson.userId}@line.local`;
     let isNewUser = false;
 
-    // login intent で user が存在しない場合 → 新規作成せずエラーでフロントに返す
-    if (!user && intent === 'login') {
-      console.log('[LINE CALLBACK] login intent but no user found, redirecting with error');
-      const base = FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
+    // login フローで user が存在しない場合 → 新規作成せずエラーでフロントに返す
+    if (!user && flow === 'login') {
+      console.log('[LINE CALLBACK] login flow but no user found, redirecting with error');
+      const base = FRONTEND_BASE_URL || FRONTEND_URL || CLIENT_ORIGIN || 'http://localhost:3000';
       let url: URL;
       try {
         url = new URL(base);
@@ -426,9 +432,9 @@ authRouter.get('/line/callback', async (req, res) => {
     }
 
     // 上記以外:
-    // - intent === 'register' で user がまだ無い → 新規作成 (isNewUser=true)
-    // - intent === 'register' で user 既にあり → 更新 (isNewUser=false)
-    // - intent === 'login' で user 既にあり → 更新 (isNewUser=false)
+    // - flow === 'register' で user がまだ無い → 新規作成 (isNewUser=true)
+    // - flow === 'register' で user 既にあり → 更新 (isNewUser=false)
+    // - flow === 'login' で user 既にあり → 更新 (isNewUser=false)
     if (!user) {
       const hashedPassword = await bcrypt.hash(generateRandomString(24), 10);
       isNewUser = true;
@@ -476,7 +482,8 @@ authRouter.get('/line/callback', async (req, res) => {
       isAdmin: user!.isAdmin
     });
 
-    const redirectUrl = buildFrontendRedirect(token, isNewUser);
+    const redirectPath = flow === 'login' ? '/likes' : '/community/join';
+    const redirectUrl = buildFrontendRedirect(token, isNewUser, redirectPath);
     return res.redirect(redirectUrl);
   } catch (error: any) {
     console.error('LINE callback error:', error);

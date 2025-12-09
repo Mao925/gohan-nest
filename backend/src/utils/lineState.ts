@@ -2,13 +2,13 @@
 import crypto from "node:crypto";
 import { SESSION_SECRET } from "../config.js";
 
-export type LineStateIntent = "login" | "register";
+export type LineStateFlow = "login" | "register";
 
 export type LineStatePayload = {
   value: string;
   nonce: string;
   createdAt: number;
-  intent: LineStateIntent;
+  flow: LineStateFlow;
 };
 
 export type LineStateVerification =
@@ -38,13 +38,13 @@ function randomHex(bytes = 16) {
   return crypto.randomBytes(bytes).toString("hex");
 }
 
-// intent を state に含める
-export function generateSignedLineState(intent: LineStateIntent = "login") {
+// flow を state に含める
+export function generateSignedLineState(flow: LineStateFlow = "login") {
   const payload: LineStatePayload = {
     value: randomHex(16),
     nonce: randomHex(16),
     createdAt: Date.now(),
-    intent,
+    flow,
   };
 
   const payloadB64 = base64UrlEncode(JSON.stringify(payload));
@@ -78,7 +78,9 @@ export function verifySignedLineState(
     return { valid: false, reason: "invalid_payload" };
   }
 
-  const payload = payloadJson as Partial<LineStatePayload>;
+  const payload = payloadJson as Partial<LineStatePayload> & {
+    intent?: LineStateFlow;
+  };
   if (
     !payload ||
     typeof payload.value !== "string" ||
@@ -89,14 +91,18 @@ export function verifySignedLineState(
   }
 
   // intent が無い古いトークンは login 扱いにフォールバック
-  const intent: LineStateIntent =
-    payload.intent === "register" ? "register" : "login";
+  const flow: LineStateFlow =
+    payload.flow === "register"
+      ? "register"
+      : payload.intent === "register"
+      ? "register"
+      : "login";
 
   const normalizedPayload: LineStatePayload = {
     value: payload.value,
     nonce: payload.nonce,
     createdAt: payload.createdAt,
-    intent,
+    flow,
   };
 
   if (Date.now() - normalizedPayload.createdAt > ttlMs) {
