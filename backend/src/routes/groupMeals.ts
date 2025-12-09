@@ -18,6 +18,11 @@ import { getApprovedMembership } from "../utils/membership.js";
 import { computeExpiresAt } from "../utils/availabilityHelpers.js";
 import { pushGroupMealInviteNotification } from "../lib/lineMessages.js";
 import { canManageGroupMeal } from "../auth/permissions.js";
+import {
+  ACTIVE_PARTICIPANT_STATUSES,
+  ATTENDING_PARTICIPANT_STATUSES,
+  getCountedParticipantsForGroupMeal,
+} from "../utils/groupMealParticipants.js";
 
 type ApprovedMembership = NonNullable<
   Awaited<ReturnType<typeof getApprovedMembership>>
@@ -328,16 +333,6 @@ type PrismaClientOrTx = {
   groupMeal: typeof prisma.groupMeal;
 };
 
-const ACTIVE_PARTICIPANT_STATUSES: GroupMealParticipantStatus[] = [
-  GroupMealParticipantStatus.INVITED,
-  GroupMealParticipantStatus.JOINED,
-  GroupMealParticipantStatus.LATE,
-];
-const ATTENDING_PARTICIPANT_STATUSES: GroupMealParticipantStatus[] = [
-  GroupMealParticipantStatus.JOINED,
-  GroupMealParticipantStatus.LATE,
-];
-
 const WEEKDAY_FROM_UTCDAY: Weekday[] = [
   "SUN",
   "MON",
@@ -375,23 +370,6 @@ function getMyStatus(participants: ParticipantWithUser[], userId: string) {
     return "INVITED" as const;
   if (me.status === GroupMealParticipantStatus.LATE) return "LATE" as const;
   return "NONE" as const;
-}
-
-function getCountedParticipantsForGroupMeal(
-  groupMeal: {
-    hostUserId?: string | null;
-    participants: { userId: string; status: GroupMealParticipantStatus }[];
-  },
-  includedStatuses: GroupMealParticipantStatus[] = ATTENDING_PARTICIPANT_STATUSES
-) {
-  const hostId = groupMeal.hostUserId;
-  return groupMeal.participants.filter((participant) => {
-    if (hostId && participant.userId === hostId) {
-      return false;
-    }
-
-    return includedStatuses.includes(participant.status);
-  });
 }
 
 function buildGroupMealPayload(
@@ -531,7 +509,10 @@ async function syncGroupMealStatus(
     status: { in: ACTIVE_PARTICIPANT_STATUSES },
   };
   if (hostUserId) {
-    where.userId = { not: hostUserId };
+    where.OR = [
+      { userId: { not: hostUserId } },
+      { userId: hostUserId, isCreator: true },
+    ];
   }
 
   const activeCount = await db.groupMealParticipant.count({ where });
@@ -565,6 +546,8 @@ groupMealsRouter.post("/", async (req, res) => {
   if (!membership) {
     return res.status(400).json(membershipRequiredResponse);
   }
+
+  const isAdmin = Boolean(req.user!.isAdmin);
 
   let parsed = createGroupMealNestedSchema.safeParse(req.body);
   if (!parsed.success) {
@@ -694,6 +677,7 @@ groupMealsRouter.post("/", async (req, res) => {
           create: {
             userId: req.user!.userId,
             isHost: true,
+            isCreator: !isAdmin,
             status: GroupMealParticipantStatus.JOINED,
           },
         },
