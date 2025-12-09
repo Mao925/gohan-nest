@@ -172,7 +172,9 @@ const invitationIdParamSchema = z.object({
   invitationId: z.string().uuid(),
 });
 
-const cancelInvitationParamsSchema = invitationIdParamSchema;
+const cancelInvitationParamsSchema = z.object({
+  invitationId: z.string().min(1, "invitationId is required"),
+});
 
 function parseScheduleDate(dateString: string): Date {
   const parsed = new Date(`${dateString}T00:00:00Z`);
