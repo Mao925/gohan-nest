@@ -28,6 +28,7 @@ import { membersRouter } from "./routes/members.js";
 import { userProfilesRouter } from "./routes/userProfiles.js";
 import { likesRouter } from "./routes/likes.js";
 import { matchesRouter } from "./routes/matches.js";
+import { superLikesRouter } from "./routes/superLikes.js";
 import devRouter from "./routes/dev.js";
 import { availabilityRouter } from "./routes/availability.js";
 import { groupMealsRouter } from "./routes/groupMeals.js";
@@ -110,6 +111,7 @@ app.use("/api/profile", profileRouter);
 app.use("/api/members", membersRouter);
 app.use("/api/users", userProfilesRouter);
 app.use("/api/likes", likesRouter);
+app.use("/api/superlikes", superLikesRouter);
 app.use("/api/matches", matchesRouter);
 app.use("/api/availability", availabilityRouter);
 // フロントの NEXT_PUBLIC_API_BASE_URL はこの API サーバーのホスト（例: https://gohan-backend.onrailway.app）を指し、

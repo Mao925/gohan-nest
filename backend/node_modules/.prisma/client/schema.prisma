@@ -28,9 +28,12 @@ model User {
   createdGroupMeals       GroupMeal[]            @relation("GroupMealCreator")
   likesFrom               Like[]                 @relation("likesFrom")
   likesTo                 Like[]                 @relation("likesTo")
-  matches1                Match[]                @relation("user1")
-  matches2                Match[]                @relation("user2")
-  profile                 Profile?
+  superLikesFrom          SuperLike[]            @relation("superLikesFrom")
+  superLikesTo            SuperLike[]            @relation("superLikesTo")
+
+  matches1 Match[]  @relation("user1")
+  matches2 Match[]  @relation("user2")
+  profile  Profile?
 }
 
 model Profile {
@@ -64,6 +67,7 @@ model Community {
   memberships CommunityMembership[]
   groupMeals  GroupMeal[]
   likes       Like[]
+  superLikes  SuperLike[]
   matches     Match[]
 }
 
@@ -114,6 +118,21 @@ model Like {
   toUser      User       @relation("likesTo", fields: [toUserId], references: [id])
 
   @@unique([fromUserId, toUserId, communityId])
+}
+
+model SuperLike {
+  id          String   @id @default(uuid())
+  fromUserId  String
+  toUserId    String
+  communityId String
+  createdAt   DateTime @default(now())
+
+  community Community @relation(fields: [communityId], references: [id])
+  fromUser  User      @relation("superLikesFrom", fields: [fromUserId], references: [id])
+  toUser    User      @relation("superLikesTo", fields: [toUserId], references: [id])
+
+  @@unique([fromUserId, toUserId, communityId])
+  @@index([fromUserId, communityId])
 }
 
 model Match {

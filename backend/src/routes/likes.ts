@@ -7,6 +7,7 @@ import {
   ensureSameCommunity,
   getApprovedMembership,
 } from "../utils/membership.js";
+import { createOrFindMatchIfReciprocalYes } from "../services/matchService.js";
 import { INCLUDE_SEED_USERS } from "../config.js";
 import {
   buildRelationshipPayload,
@@ -110,62 +111,43 @@ likesRouter.post("/", async (req, res) => {
   }
 
   try {
-    const result = await prisma.$transaction(async (tx: any) => {
-      await tx.like.create({
-        data: {
-          fromUserId: req.user!.userId,
-          toUserId: parsed.data.targetUserId,
-          communityId: membership.communityId,
-          answer: parsed.data.answer,
-        },
-      });
-
-      let matched = false;
-      let matchedAt: string | undefined;
-      let partnerName = "";
-      let partnerFavoriteMeals: string[] = [];
-      if (parsed.data.answer === "YES") {
-        const reverse = await tx.like.findFirst({
-          where: {
-            fromUserId: parsed.data.targetUserId,
-            toUserId: req.user!.userId,
+    const result = await prisma.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        await tx.like.create({
+          data: {
+            fromUserId: req.user!.userId,
+            toUserId: parsed.data.targetUserId,
             communityId: membership.communityId,
-            answer: "YES",
+            answer: parsed.data.answer,
           },
         });
 
-        if (reverse) {
-          const [user1Id, user2Id] = [
-            req.user!.userId,
-            parsed.data.targetUserId,
-          ].sort();
-          const matchRecord = await tx.match.upsert({
-            where: {
-              user1Id_user2Id_communityId: {
-                user1Id,
-                user2Id,
-                communityId: membership.communityId,
-              },
-            },
-            update: {},
-            create: {
-              user1Id,
-              user2Id,
-              communityId: membership.communityId,
-            },
+        let matched = false;
+        let matchedAt: string | undefined;
+        let partnerName = "";
+        let partnerFavoriteMeals: string[] = [];
+        if (parsed.data.answer === "YES") {
+          const matchRecord = await createOrFindMatchIfReciprocalYes({
+            tx,
+            communityId: membership.communityId,
+            fromUserId: req.user!.userId,
+            toUserId: parsed.data.targetUserId,
           });
-          matched = true;
-          matchedAt = matchRecord.createdAt.toISOString();
-          const targetProfile = await tx.profile.findUnique({
-            where: { userId: parsed.data.targetUserId },
-          });
-          partnerName = targetProfile?.name || "";
-          partnerFavoriteMeals = targetProfile?.favoriteMeals || [];
-        }
-      }
 
-      return { matched, matchedAt, partnerName, partnerFavoriteMeals };
-    });
+          if (matchRecord) {
+            matched = true;
+            matchedAt = matchRecord.createdAt.toISOString();
+            const targetProfile = await tx.profile.findUnique({
+              where: { userId: parsed.data.targetUserId },
+            });
+            partnerName = targetProfile?.name || "";
+            partnerFavoriteMeals = targetProfile?.favoriteMeals || [];
+          }
+        }
+
+        return { matched, matchedAt, partnerName, partnerFavoriteMeals };
+      }
+    );
 
     // マッチ情報自体はフロントで使っている可能性があるのでレスポンスは維持
     if (result.matched) {
