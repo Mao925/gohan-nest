@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { ensureSameCommunity, getApprovedMembership, } from "../utils/membership.js";
+import { createOrFindMatchIfReciprocalYes } from "../services/matchService.js";
 import { buildRelationshipPayload, formatPartnerAnswer, } from "../utils/relationships.js";
 const likeSchema = z.object({
     targetUserId: z.string().uuid(),
@@ -97,34 +98,13 @@ likesRouter.post("/", async (req, res) => {
             let partnerName = "";
             let partnerFavoriteMeals = [];
             if (parsed.data.answer === "YES") {
-                const reverse = await tx.like.findFirst({
-                    where: {
-                        fromUserId: parsed.data.targetUserId,
-                        toUserId: req.user.userId,
-                        communityId: membership.communityId,
-                        answer: "YES",
-                    },
+                const matchRecord = await createOrFindMatchIfReciprocalYes({
+                    tx,
+                    communityId: membership.communityId,
+                    fromUserId: req.user.userId,
+                    toUserId: parsed.data.targetUserId,
                 });
-                if (reverse) {
-                    const [user1Id, user2Id] = [
-                        req.user.userId,
-                        parsed.data.targetUserId,
-                    ].sort();
-                    const matchRecord = await tx.match.upsert({
-                        where: {
-                            user1Id_user2Id_communityId: {
-                                user1Id,
-                                user2Id,
-                                communityId: membership.communityId,
-                            },
-                        },
-                        update: {},
-                        create: {
-                            user1Id,
-                            user2Id,
-                            communityId: membership.communityId,
-                        },
-                    });
+                if (matchRecord) {
                     matched = true;
                     matchedAt = matchRecord.createdAt.toISOString();
                     const targetProfile = await tx.profile.findUnique({
