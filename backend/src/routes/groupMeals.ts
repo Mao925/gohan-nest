@@ -23,6 +23,10 @@ import {
   ATTENDING_PARTICIPANT_STATUSES,
   getCountedParticipantsForGroupMeal,
 } from "../utils/groupMealParticipants.js";
+import {
+  getGroupMealHeadcountTx,
+  getGroupMealRemainingCapacityTx,
+} from "../services/groupMealsService.js";
 
 type ApprovedMembership = NonNullable<
   Awaited<ReturnType<typeof getApprovedMembership>>
@@ -784,6 +788,12 @@ groupMealsRouter.patch("/:groupMealId", async (req, res, next) => {
     }
 
     if (body.capacity !== undefined) {
+      const headcount = await getGroupMealHeadcountTx(prisma, groupMealId);
+      if (body.capacity < headcount) {
+        return res.status(400).json({
+          message: `定員(${body.capacity})は現在の参加人数(${headcount})より小さくできません。`,
+        });
+      }
       data.capacity = body.capacity;
     }
 
@@ -1034,20 +1044,33 @@ groupMealsRouter.get("/:groupMealId", async (req, res) => {
   }
 
   try {
-    const groupMeal = (await prisma.groupMeal.findFirst({
-      where: {
-        id: groupMealId,
-        communityId: membership.communityId,
-      },
-      include: {
-        host: { include: { profile: true } },
-        participants: {
-          include: { user: { include: { profile: true } } },
+    const result = await prisma.$transaction(async (tx) => {
+      const groupMeal = (await tx.groupMeal.findFirst({
+        where: {
+          id: groupMealId,
+          communityId: membership.communityId,
         },
-      },
-    })) as GroupMealWithRelations | null;
+        include: {
+          host: { include: { profile: true } },
+          participants: {
+            include: { user: { include: { profile: true } } },
+          },
+        },
+      })) as GroupMealWithRelations | null;
 
-    if (!groupMeal) {
+      if (!groupMeal) {
+        return null;
+      }
+
+      const [headcount, remainingCapacity] = await Promise.all([
+        getGroupMealHeadcountTx(tx, groupMealId),
+        getGroupMealRemainingCapacityTx(tx, groupMealId),
+      ]);
+
+      return { groupMeal, headcount, remainingCapacity };
+    });
+
+    if (!result?.groupMeal) {
       console.log("Group meal not found", {
         groupMealId,
         communityId: membership.communityId,
@@ -1055,7 +1078,11 @@ groupMealsRouter.get("/:groupMealId", async (req, res) => {
       return res.status(404).json({ message: "Group meal not found" });
     }
 
-    return res.json(buildGroupMealDetailResponse(groupMeal, userId));
+    return res.json({
+      ...buildGroupMealDetailResponse(result.groupMeal, userId),
+      currentHeadcount: result.headcount,
+      remainingCapacity: result.remainingCapacity,
+    });
   } catch (error: any) {
     console.error("GET /api/group-meals/:groupMealId error", error);
     return res.status(500).json({ message: "Internal server error" });
@@ -1266,6 +1293,13 @@ groupMealsRouter.get("/:id/candidates", async (req, res) => {
   }
 });
 
+class InviteCapacityExceededError extends Error {
+  constructor(public remaining: number) {
+    super("Invite capacity exceeded");
+    this.name = "InviteCapacityExceededError";
+  }
+}
+
 groupMealsRouter.post("/:id/invite", async (req, res) => {
   const membership = await getApprovedMembership(req.user!.userId);
   if (!membership) {
@@ -1325,10 +1359,6 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
   ).length;
   const activeCount = countedActiveParticipants.length;
 
-  if (activeCount + newInviteCount > groupMeal.capacity) {
-    return res.status(400).json({ message: "定員を超えるため招待できません" });
-  }
-
   const validUsers = await prisma.user.findMany({
     where: {
       id: { in: uniqueUserIds },
@@ -1352,6 +1382,24 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
 
   try {
     await prisma.$transaction(async (tx: any) => {
+      const txGroupMeal = await tx.groupMeal.findUnique({
+        where: { id: groupMealId },
+        select: {
+          capacity: true,
+          status: true,
+          hostUserId: true,
+        },
+      });
+
+      if (!txGroupMeal) {
+        throw new Error("Group meal not found");
+      }
+
+      const remaining = await getGroupMealRemainingCapacityTx(tx, groupMealId);
+      if (newInviteCount > remaining) {
+        throw new InviteCapacityExceededError(remaining);
+      }
+
       for (const userId of uniqueUserIds) {
         await tx.groupMealParticipant.upsert({
           where: { groupMealId_userId: { groupMealId, userId } },
@@ -1387,9 +1435,9 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
       await syncGroupMealStatus(
         tx,
         groupMealId,
-        groupMeal.capacity,
-        groupMeal.status,
-        groupMeal.hostUserId
+        txGroupMeal.capacity,
+        txGroupMeal.status,
+        txGroupMeal.hostUserId
       );
     });
 
@@ -1425,6 +1473,11 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
     const updated = await fetchGroupMeal(groupMealId);
     return res.json(buildGroupMealPayload(updated!, req.user!.userId));
   } catch (error: any) {
+    if (error instanceof InviteCapacityExceededError) {
+      return res.status(400).json({
+        message: `この箱にはあと${error.remaining}人までしか招待できません。`,
+      });
+    }
     console.error("INVITE GROUP MEAL CANDIDATES ERROR:", error);
     return res.status(500).json({ message: "Failed to invite candidates" });
   }
