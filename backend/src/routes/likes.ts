@@ -121,6 +121,13 @@ likesRouter.post("/", async (req, res) => {
             answer: parsed.data.answer,
           },
         });
+        await tx.superLike.deleteMany({
+          where: {
+            fromUserId: req.user!.userId,
+            toUserId: parsed.data.targetUserId,
+            communityId: membership.communityId,
+          },
+        });
 
         let matched = false;
         let matchedAt: string | undefined;
@@ -269,10 +276,17 @@ likesRouter.patch("/:targetUserId", async (req, res) => {
     });
   }
 
-  const result = await prisma.$transaction(async (tx: any) => {
+  const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     await tx.like.update({
       where: { id: existingLike.id },
       data: { answer: parsed.data.answer },
+    });
+    await tx.superLike.deleteMany({
+      where: {
+        fromUserId: req.user!.userId,
+        toUserId: targetUserId,
+        communityId: membership.communityId,
+      },
     });
 
     if (parsed.data.answer === "YES") {
@@ -374,7 +388,7 @@ likesRouter.put("/:targetUserId", async (req, res) => {
     };
 
     if (answer === "NO") {
-      await prisma.$transaction(async (tx: any) => {
+      await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
         await tx.like.upsert({
           where: {
             fromUserId_toUserId_communityId: {
@@ -391,13 +405,20 @@ likesRouter.put("/:targetUserId", async (req, res) => {
             answer,
           },
         });
+        await tx.superLike.deleteMany({
+          where: {
+            fromUserId,
+            toUserId: targetUserId,
+            communityId,
+          },
+        });
         await tx.match.deleteMany({ where: matchWhere });
       });
       return res.status(204).end();
     }
 
     let matchCreated = false;
-    await prisma.$transaction(async (tx: any) => {
+    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       await tx.like.upsert({
         where: {
           fromUserId_toUserId_communityId: {
@@ -412,6 +433,13 @@ likesRouter.put("/:targetUserId", async (req, res) => {
           toUserId: targetUserId,
           communityId,
           answer,
+        },
+      });
+      await tx.superLike.deleteMany({
+        where: {
+          fromUserId,
+          toUserId: targetUserId,
+          communityId,
         },
       });
 
