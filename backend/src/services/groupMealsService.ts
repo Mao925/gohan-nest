@@ -5,13 +5,21 @@ import { prisma } from "../lib/prisma.js";
 
 type GroupMealDbClient = Prisma.TransactionClient | PrismaClient;
 
-const activeParticipantWhere = (groupMealId: string): Prisma.GroupMealParticipantWhereInput => ({
+export const OCCUPYING_PARTICIPANT_STATUSES: GroupMealParticipantStatus[] = [
+  GroupMealParticipantStatus.JOINED,
+  GroupMealParticipantStatus.LATE,
+];
+
+export const INVITED_PARTICIPANT_STATUSES: GroupMealParticipantStatus[] = [
+  GroupMealParticipantStatus.INVITED,
+];
+
+const occupyingParticipantWhere = (
+  groupMealId: string
+): Prisma.GroupMealParticipantWhereInput => ({
   groupMealId,
   status: {
-    notIn: [
-      GroupMealParticipantStatus.CANCELLED,
-      GroupMealParticipantStatus.DECLINED,
-    ],
+    in: OCCUPYING_PARTICIPANT_STATUSES,
   },
 });
 
@@ -20,25 +28,28 @@ export async function getGroupMealHeadcountTx(
   groupMealId: string
 ): Promise<number> {
   return tx.groupMealParticipant.count({
-    where: activeParticipantWhere(groupMealId),
+    where: occupyingParticipantWhere(groupMealId),
   });
 }
 
 export async function getGroupMealRemainingCapacityTx(
   tx: GroupMealDbClient,
   groupMealId: string,
-  activeCount?: number
+  opts?: { precomputedActiveCount?: number }
 ): Promise<number> {
   const groupMeal = await tx.groupMeal.findUnique({
     where: { id: groupMealId },
-    select: { capacity: true },
+    select: { id: true, capacity: true },
   });
 
   if (!groupMeal) {
     throw new Error("Group meal not found");
   }
 
-  const headcount = activeCount ?? (await getGroupMealHeadcountTx(tx, groupMealId));
+  const headcount =
+    typeof opts?.precomputedActiveCount === "number"
+      ? opts.precomputedActiveCount
+      : await getGroupMealHeadcountTx(tx, groupMealId);
   return Math.max(0, groupMeal.capacity - headcount);
 }
 

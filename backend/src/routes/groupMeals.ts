@@ -1069,7 +1069,7 @@ groupMealsRouter.get("/:groupMealId", async (req, res) => {
       const remainingCapacity = await getGroupMealRemainingCapacityTx(
         tx,
         groupMealId,
-        headcount
+        { precomputedActiveCount: headcount }
       );
       console.log("[groupMeal headcount]", {
         groupMealId,
