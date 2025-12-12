@@ -8,6 +8,7 @@ import { computeExpiresAt } from "../utils/availabilityHelpers.js";
 import { pushGroupMealInviteNotification } from "../lib/lineMessages.js";
 import { canManageGroupMeal } from "../auth/permissions.js";
 import { ACTIVE_PARTICIPANT_STATUSES, ATTENDING_PARTICIPANT_STATUSES, getCountedParticipantsForGroupMeal, } from "../utils/groupMealParticipants.js";
+import { getGroupMealHeadcountTx, getGroupMealRemainingCapacityTx, } from "../services/groupMealsService.js";
 const placeSchema = z.object({
     name: z.string().min(1),
     address: z.string().nullable().optional(),
@@ -620,6 +621,12 @@ groupMealsRouter.patch("/:groupMealId", async (req, res, next) => {
             }
         }
         if (body.capacity !== undefined) {
+            const headcount = await getGroupMealHeadcountTx(prisma, groupMealId);
+            if (body.capacity < headcount) {
+                return res.status(400).json({
+                    message: `定員(${body.capacity})は現在の参加人数(${headcount})より小さくできません。`,
+                });
+            }
             data.capacity = body.capacity;
         }
         if (body.nearestStation !== undefined) {
@@ -844,26 +851,40 @@ groupMealsRouter.get("/:groupMealId", async (req, res) => {
         return res.status(403).json({ message: "membership required" });
     }
     try {
-        const groupMeal = (await prisma.groupMeal.findFirst({
-            where: {
-                id: groupMealId,
-                communityId: membership.communityId,
-            },
-            include: {
-                host: { include: { profile: true } },
-                participants: {
-                    include: { user: { include: { profile: true } } },
+        const result = await prisma.$transaction(async (tx) => {
+            const groupMeal = (await tx.groupMeal.findFirst({
+                where: {
+                    id: groupMealId,
+                    communityId: membership.communityId,
                 },
-            },
-        }));
-        if (!groupMeal) {
+                include: {
+                    host: { include: { profile: true } },
+                    participants: {
+                        include: { user: { include: { profile: true } } },
+                    },
+                },
+            }));
+            if (!groupMeal) {
+                return null;
+            }
+            const [headcount, remainingCapacity] = await Promise.all([
+                getGroupMealHeadcountTx(tx, groupMealId),
+                getGroupMealRemainingCapacityTx(tx, groupMealId),
+            ]);
+            return { groupMeal, headcount, remainingCapacity };
+        });
+        if (!result?.groupMeal) {
             console.log("Group meal not found", {
                 groupMealId,
                 communityId: membership.communityId,
             });
             return res.status(404).json({ message: "Group meal not found" });
         }
-        return res.json(buildGroupMealDetailResponse(groupMeal, userId));
+        return res.json({
+            ...buildGroupMealDetailResponse(result.groupMeal, userId),
+            currentHeadcount: result.headcount,
+            remainingCapacity: result.remainingCapacity,
+        });
     }
     catch (error) {
         console.error("GET /api/group-meals/:groupMealId error", error);
@@ -1050,6 +1071,13 @@ groupMealsRouter.get("/:id/candidates", async (req, res) => {
         return res.status(500).json({ message: "Failed to fetch candidates" });
     }
 });
+class InviteCapacityExceededError extends Error {
+    constructor(remaining) {
+        super("Invite capacity exceeded");
+        this.remaining = remaining;
+        this.name = "InviteCapacityExceededError";
+    }
+}
 groupMealsRouter.post("/:id/invite", async (req, res) => {
     const membership = await getApprovedMembership(req.user.userId);
     if (!membership) {
@@ -1094,9 +1122,6 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
     const existingActiveIds = new Set(countedActiveParticipants.map((p) => p.userId));
     const newInviteCount = uniqueUserIds.filter((id) => !existingActiveIds.has(id)).length;
     const activeCount = countedActiveParticipants.length;
-    if (activeCount + newInviteCount > groupMeal.capacity) {
-        return res.status(400).json({ message: "定員を超えるため招待できません" });
-    }
     const validUsers = await prisma.user.findMany({
         where: {
             id: { in: uniqueUserIds },
@@ -1119,6 +1144,21 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
     }
     try {
         await prisma.$transaction(async (tx) => {
+            const txGroupMeal = await tx.groupMeal.findUnique({
+                where: { id: groupMealId },
+                select: {
+                    capacity: true,
+                    status: true,
+                    hostUserId: true,
+                },
+            });
+            if (!txGroupMeal) {
+                throw new Error("Group meal not found");
+            }
+            const remaining = await getGroupMealRemainingCapacityTx(tx, groupMealId);
+            if (newInviteCount > remaining) {
+                throw new InviteCapacityExceededError(remaining);
+            }
             for (const userId of uniqueUserIds) {
                 await tx.groupMealParticipant.upsert({
                     where: { groupMealId_userId: { groupMealId, userId } },
@@ -1150,7 +1190,7 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
                     },
                 });
             }
-            await syncGroupMealStatus(tx, groupMealId, groupMeal.capacity, groupMeal.status, groupMeal.hostUserId);
+            await syncGroupMealStatus(tx, groupMealId, txGroupMeal.capacity, txGroupMeal.status, txGroupMeal.hostUserId);
         });
         if (newParticipantIds.length > 0) {
             const usersToNotify = await prisma.user.findMany({
@@ -1183,6 +1223,11 @@ groupMealsRouter.post("/:id/invite", async (req, res) => {
         return res.json(buildGroupMealPayload(updated, req.user.userId));
     }
     catch (error) {
+        if (error instanceof InviteCapacityExceededError) {
+            return res.status(400).json({
+                message: `この箱にはあと${error.remaining}人までしか招待できません。`,
+            });
+        }
         console.error("INVITE GROUP MEAL CANDIDATES ERROR:", error);
         return res.status(500).json({ message: "Failed to invite candidates" });
     }

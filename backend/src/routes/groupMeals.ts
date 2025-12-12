@@ -1062,10 +1062,20 @@ groupMealsRouter.get("/:groupMealId", async (req, res) => {
         return null;
       }
 
-      const [headcount, remainingCapacity] = await Promise.all([
-        getGroupMealHeadcountTx(tx, groupMealId),
-        getGroupMealRemainingCapacityTx(tx, groupMealId),
-      ]);
+      const totalCount = await tx.groupMealParticipant.count({
+        where: { groupMealId },
+      });
+      const headcount = await getGroupMealHeadcountTx(tx, groupMealId);
+      const remainingCapacity = await getGroupMealRemainingCapacityTx(
+        tx,
+        groupMealId,
+        headcount
+      );
+      console.log("[groupMeal headcount]", {
+        groupMealId,
+        totalCount,
+        activeCount: headcount,
+      });
 
       return { groupMeal, headcount, remainingCapacity };
     });
