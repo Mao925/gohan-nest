@@ -93,6 +93,13 @@ likesRouter.post("/", async (req, res) => {
                     answer: parsed.data.answer,
                 },
             });
+            await tx.superLike.deleteMany({
+                where: {
+                    fromUserId: req.user.userId,
+                    toUserId: parsed.data.targetUserId,
+                    communityId: membership.communityId,
+                },
+            });
             let matched = false;
             let matchedAt;
             let partnerName = "";
@@ -223,6 +230,13 @@ likesRouter.patch("/:targetUserId", async (req, res) => {
             where: { id: existingLike.id },
             data: { answer: parsed.data.answer },
         });
+        await tx.superLike.deleteMany({
+            where: {
+                fromUserId: req.user.userId,
+                toUserId: targetUserId,
+                communityId: membership.communityId,
+            },
+        });
         if (parsed.data.answer === "YES") {
             const reverse = await tx.like.findFirst({
                 where: {
@@ -326,6 +340,13 @@ likesRouter.put("/:targetUserId", async (req, res) => {
                         answer,
                     },
                 });
+                await tx.superLike.deleteMany({
+                    where: {
+                        fromUserId,
+                        toUserId: targetUserId,
+                        communityId,
+                    },
+                });
                 await tx.match.deleteMany({ where: matchWhere });
             });
             return res.status(204).end();
@@ -346,6 +367,13 @@ likesRouter.put("/:targetUserId", async (req, res) => {
                     toUserId: targetUserId,
                     communityId,
                     answer,
+                },
+            });
+            await tx.superLike.deleteMany({
+                where: {
+                    fromUserId,
+                    toUserId: targetUserId,
+                    communityId,
                 },
             });
             const reciprocalYesLike = await tx.like.findFirst({

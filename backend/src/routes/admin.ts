@@ -201,3 +201,130 @@ adminRouter.delete("/seed-admin", async (_req, res) => {
 
   return res.json({ deleted: true });
 });
+
+adminRouter.get(
+  "/communities/:communityId/users/:fromUserId/hearts",
+  async (req, res) => {
+    const { communityId, fromUserId } = req.params;
+    const community = await prisma.community.findUnique({
+      where: { id: communityId },
+    });
+    if (!community) {
+      return res.status(404).json({ message: "Community not found" });
+    }
+
+    const fromUser = await prisma.user.findUnique({
+      where: { id: fromUserId },
+      select: {
+        id: true,
+        email: true,
+        lineDisplayName: true,
+        profile: { select: { name: true } },
+      },
+    });
+    if (!fromUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const membership = await prisma.communityMembership.findFirst({
+      where: { userId: fromUserId, communityId, status: "approved" },
+    });
+    if (!membership) {
+      return res
+        .status(404)
+        .json({ message: "User is not a member of this community" });
+    }
+
+    const hearts = await prisma.like.findMany({
+      where: { communityId, fromUserId, answer: "YES" },
+      orderBy: { createdAt: "desc" },
+      select: {
+        createdAt: true,
+        toUser: {
+          select: {
+            id: true,
+            email: true,
+            lineDisplayName: true,
+            profile: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    const fromUserPayload = buildNamePayload(fromUser);
+    const heartsPayload = hearts.map((heart) => ({
+      toUser: buildNamePayload(heart.toUser),
+      createdAt: heart.createdAt.toISOString(),
+    }));
+    return res.json({ fromUser: fromUserPayload, hearts: heartsPayload });
+  }
+);
+
+adminRouter.get(
+  "/communities/:communityId/users/:fromUserId/stars",
+  async (req, res) => {
+    const { communityId, fromUserId } = req.params;
+    const community = await prisma.community.findUnique({
+      where: { id: communityId },
+    });
+    if (!community) {
+      return res.status(404).json({ message: "Community not found" });
+    }
+
+    const fromUser = await prisma.user.findUnique({
+      where: { id: fromUserId },
+      select: {
+        id: true,
+        email: true,
+        lineDisplayName: true,
+        profile: { select: { name: true } },
+      },
+    });
+    if (!fromUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const membership = await prisma.communityMembership.findFirst({
+      where: { userId: fromUserId, communityId, status: "approved" },
+    });
+    if (!membership) {
+      return res
+        .status(404)
+        .json({ message: "User is not a member of this community" });
+    }
+
+    const stars = await prisma.superLike.findMany({
+      where: { communityId, fromUserId },
+      orderBy: { createdAt: "desc" },
+      select: {
+        createdAt: true,
+        toUser: {
+          select: {
+            id: true,
+            email: true,
+            lineDisplayName: true,
+            profile: { select: { name: true } },
+          },
+        },
+      },
+    });
+
+    const fromUserPayload = buildNamePayload(fromUser);
+    const starsPayload = stars.map((star) => ({
+      toUser: buildNamePayload(star.toUser),
+      createdAt: star.createdAt.toISOString(),
+    }));
+    return res.json({ fromUser: fromUserPayload, stars: starsPayload });
+  }
+);
+
+function buildNamePayload(user: {
+  id: string;
+  email: string;
+  lineDisplayName: string | null;
+  profile: { name: string | null } | null;
+}) {
+  const name =
+    user.profile?.name || user.lineDisplayName || user.email || "Unknown User";
+  return { id: user.id, name };
+}

@@ -28,6 +28,14 @@ membersRouter.get('/', async (req, res) => {
             return res.json({ members: [] });
         }
         const memberUserIds = otherMembers.map((member) => member.user.id);
+        const superLikes = await prisma.superLike.findMany({
+            where: {
+                fromUserId: userId,
+                communityId: membership.communityId
+            },
+            select: { toUserId: true }
+        });
+        const superLikedUserIds = new Set(superLikes.map((superLike) => superLike.toUserId));
         const [likesFromMe, likesToMe] = await Promise.all([
             prisma.like.findMany({
                 where: {
@@ -52,13 +60,17 @@ membersRouter.get('/', async (req, res) => {
             const partnerLike = reverseLikeMap.get(membership.user.id);
             const myLikeStatus = myLike?.answer === 'YES' ? 'YES' : 'NO';
             const isMutualLike = myLikeStatus === 'YES' && partnerLike?.answer === 'YES';
+            const superLikedByMe = superLikedUserIds.has(membership.user.id);
+            const likedByMe = !superLikedByMe && myLike?.answer === 'YES';
             return {
                 id: membership.user.id,
                 name: profile?.name ?? null,
                 favoriteMeals: profile?.favoriteMeals ?? [],
                 profileImageUrl: profile?.profileImageUrl ?? null,
                 myLikeStatus,
-                isMutualLike
+                isMutualLike,
+                likedByMe,
+                superLikedByMe
             };
         });
         const safeMembers = meetsAvailabilityRequirement
@@ -88,6 +100,14 @@ membersRouter.get('/relationships', async (req, res) => {
         return res.json(emptyResponse);
     }
     const userId = req.user.userId;
+    const superLikes = await prisma.superLike.findMany({
+        where: {
+            fromUserId: userId,
+            communityId: membership.communityId
+        },
+        select: { toUserId: true }
+    });
+    const superLikedUserIds = new Set(superLikes.map((superLike) => superLike.toUserId));
     const [matches, likesFrom] = await Promise.all([
         prisma.match.findMany({
             where: {
@@ -118,7 +138,8 @@ membersRouter.get('/relationships', async (req, res) => {
         userId,
         matches,
         likesFrom,
-        reverseLikes
+        reverseLikes,
+        superLikedUserIds
     });
     return res.json(response);
 });
