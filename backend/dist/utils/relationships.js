@@ -1,3 +1,9 @@
+export function deriveReactionFlags(answer, superLikedByMe) {
+    return {
+        likedByMe: answer === 'YES' && !superLikedByMe,
+        superLikedByMe
+    };
+}
 export function formatPartnerAnswer(answer) {
     return answer ?? 'UNANSWERED';
 }
@@ -10,6 +16,7 @@ export function determineNextSection(myAnswer, matched) {
 export function buildRelationshipPayload(params) {
     const matched = Boolean(params.matchRecord);
     const relationshipId = params.matchRecord?.id ?? params.like.id;
+    const reaction = deriveReactionFlags(params.myAnswer, params.superLikedByMe ?? false);
     const relationship = {
         id: relationshipId,
         relationshipId,
@@ -23,16 +30,20 @@ export function buildRelationshipPayload(params) {
         matchId: params.matchRecord?.id,
         matchedAt: params.matchRecord ? params.matchRecord.createdAt.toISOString() : undefined,
         canToggleToYes: params.myAnswer === 'NO',
-        canToggleToNo: params.myAnswer === 'YES' && !matched
+        canToggleToNo: params.myAnswer === 'YES' && !matched,
+        likedByMe: reaction.likedByMe,
+        superLikedByMe: reaction.superLikedByMe
     };
     const nextSection = determineNextSection(params.myAnswer, matched);
     return { relationship, nextSection };
 }
 export function buildRelationshipResponse(params) {
+    const superLikedSet = params.superLikedUserIds ?? new Set();
     const matchCards = params.matches.map((match) => {
         const isUser1 = match.user1Id === params.userId;
         const partner = isUser1 ? match.user2 : match.user1;
         const relationshipId = match.id;
+        const reaction = deriveReactionFlags('YES', superLikedSet.has(partner.id));
         return {
             id: relationshipId,
             relationshipId,
@@ -46,7 +57,9 @@ export function buildRelationshipResponse(params) {
             partnerAnswer: 'YES',
             matched: true,
             canToggleToNo: false,
-            canToggleToYes: false
+            canToggleToYes: false,
+            likedByMe: reaction.likedByMe,
+            superLikedByMe: reaction.superLikedByMe
         };
     });
     const matchedUserIds = new Set(matchCards.map((summary) => summary.targetUserId));
@@ -56,6 +69,8 @@ export function buildRelationshipResponse(params) {
     for (const like of params.likesFrom) {
         const partnerAnswer = formatPartnerAnswer(reverseMap.get(like.toUserId)?.answer);
         const relationshipId = like.id;
+        const isSuperLiked = superLikedSet.has(like.toUserId);
+        const reaction = deriveReactionFlags(like.answer, isSuperLiked);
         const summary = {
             id: relationshipId,
             relationshipId,
@@ -69,7 +84,9 @@ export function buildRelationshipResponse(params) {
             matchId: undefined,
             matchedAt: undefined,
             canToggleToYes: like.answer === 'NO',
-            canToggleToNo: like.answer === 'YES' && !matchedUserIds.has(like.toUserId)
+            canToggleToNo: like.answer === 'YES' && !matchedUserIds.has(like.toUserId),
+            likedByMe: reaction.likedByMe,
+            superLikedByMe: reaction.superLikedByMe
         };
         if (like.answer === 'YES' && !matchedUserIds.has(like.toUserId)) {
             awaitingResponse.push(summary);
