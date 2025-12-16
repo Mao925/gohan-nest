@@ -25,6 +25,7 @@ model User {
   sentGroupMealInvites    GroupMealCandidate[]   @relation("GroupMealCandidateInviter")
   invitedGroupMeals       GroupMealCandidate[]   @relation("GroupMealCandidateUser")
   groupMealParticipants   GroupMealParticipant[]
+  sentGroupMealChatMessages GroupMealChatMessage[]
   createdGroupMeals       GroupMeal[]            @relation("GroupMealCreator")
   likesFrom               Like[]                 @relation("likesFrom")
   likesTo                 Like[]                 @relation("likesTo")
@@ -223,6 +224,7 @@ model GroupMeal {
   host               User                   @relation("GroupMealHost", fields: [hostUserId], references: [id])
   candidates         GroupMealCandidate[]
   participants       GroupMealParticipant[]
+  chatMessages       GroupMealChatMessage[]
 }
 
 model GroupMealCandidate {
@@ -257,6 +259,21 @@ model GroupMealParticipant {
   user        User                       @relation(fields: [userId], references: [id])
 
   @@unique([groupMealId, userId])
+}
+
+model GroupMealChatMessage {
+  id           String   @id @default(cuid())
+  groupMealId  String
+  senderUserId String
+  text         String   @db.VarChar(1000)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  groupMeal GroupMeal @relation(fields: [groupMealId], references: [id], onDelete: Cascade)
+  sender    User      @relation(fields: [senderUserId], references: [id])
+
+  @@index([groupMealId, createdAt])
+  @@index([senderUserId, createdAt])
 }
 
 enum MembershipStatus {
