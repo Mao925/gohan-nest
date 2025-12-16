@@ -37,24 +37,39 @@ type SerializedMessage = {
   };
 };
 
-function formatSender(user: {
+type RawChatSender = {
   id: string;
   profile: { name?: string | null; profileImageUrl?: string | null } | null;
+  displayName?: string | null;
+  avatarUrl?: string | null;
   lineDisplayName?: string | null;
-}) {
+  linePictureUrl?: string | null;
+};
+
+function normalizeChatSender(sender: RawChatSender): RawChatSender {
+  return {
+    ...sender,
+    displayName: sender.displayName ?? sender.lineDisplayName ?? null,
+    avatarUrl: sender.avatarUrl ?? sender.linePictureUrl ?? null,
+  };
+}
+
+function formatSender(user: RawChatSender) {
   const nameFromProfile = user.profile?.name?.trim();
   const displayName =
     nameFromProfile && nameFromProfile.length > 0
       ? nameFromProfile
-      : user.lineDisplayName?.trim() || 'GoMeal Member';
+      : user.displayName?.trim() || '名無し';
 
   const senderPayload: SerializedMessage['sender'] = {
     id: user.id,
     displayName,
   };
 
-  if (user.profile?.profileImageUrl) {
-    senderPayload.avatarUrl = user.profile.profileImageUrl;
+  const avatarUrl =
+    user.profile?.profileImageUrl || user.avatarUrl || undefined;
+  if (avatarUrl) {
+    senderPayload.avatarUrl = avatarUrl;
   }
 
   return senderPayload;
@@ -64,7 +79,7 @@ function formatMessage(message: {
   id: string;
   text: string;
   createdAt: Date;
-  sender: Parameters<typeof formatSender>[0];
+  sender: RawChatSender;
 }): SerializedMessage {
   return {
     id: message.id,
@@ -153,7 +168,14 @@ groupMealChatRouter.get('/messages', async (req: Request, res: Response) => {
     nextCursor = rowSet[limit - 1].id;
   }
 
-  const messages = page.reverse().map(formatMessage);
+  const messages = page
+    .reverse()
+    .map((message) =>
+      formatMessage({
+        ...message,
+        sender: normalizeChatSender(message.sender),
+      })
+    );
 
   const responseBody: { messages: SerializedMessage[]; nextCursor?: string } = {
     messages,
@@ -204,7 +226,14 @@ groupMealChatRouter.post('/messages', async (req: Request, res: Response) => {
       },
     });
 
-    return res.status(201).json(formatMessage(created));
+    return res
+      .status(201)
+      .json(
+        formatMessage({
+          ...created,
+          sender: normalizeChatSender(created.sender),
+        })
+      );
   } catch (error) {
     console.error('[group-meal-chat] failed to create message', error);
     return res.status(500).json({ message: 'Failed to send message' });
