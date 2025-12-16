@@ -963,7 +963,6 @@ groupMealsRouter.get("/", async (req, res) => {
   const today = new Date();
   today.setUTCHours(0, 0, 0, 0);
   today.setUTCDate(today.getUTCDate() - 1); // include recent past a little
-  const now = new Date();
   const modeParam =
     typeof req.query.mode === "string"
       ? req.query.mode.toUpperCase()
@@ -976,32 +975,47 @@ groupMealsRouter.get("/", async (req, res) => {
       : undefined;
 
   try {
-    let baseGroupMeals: any[];
+    const meId = req.user!.userId;
+    const baseWhere: Prisma.GroupMealWhereInput = {
+      status: { in: [GroupMealStatus.OPEN, GroupMealStatus.FULL] },
+      date: { gte: today },
+    };
 
     if (membership) {
-      baseGroupMeals = (await prisma.$queryRaw`
-        SELECT *
-        FROM "GroupMeal"
-        WHERE "communityId" = ${membership.communityId}
-          AND "status"::text IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
-          AND "date" >= ${today}
-        ORDER BY "date" ASC, "createdAt" ASC
-      `)!;
-    } else {
-      baseGroupMeals = (await prisma.$queryRaw`
-        SELECT *
-        FROM "GroupMeal"
-        WHERE "status"::text IN (${GroupMealStatus.OPEN}, ${GroupMealStatus.FULL})
-          AND "date" >= ${today}
-        ORDER BY "date" ASC, "createdAt" ASC
-      `)!;
+      baseWhere.communityId = membership.communityId;
     }
 
     if (modeFilter) {
-      baseGroupMeals = baseGroupMeals.filter(
-        (groupMeal) => groupMeal.mode === modeFilter
-      );
+      baseWhere.mode = modeFilter;
     }
+
+    const visibleWhere: Prisma.GroupMealWhereInput | undefined = membership
+      ? {
+          OR: [
+            { hostUserId: meId },
+            {
+              participants: {
+                some: {
+                  userId: meId,
+                  status: { in: ACTIVE_PARTICIPANT_STATUSES },
+                },
+              },
+            },
+          ],
+        }
+      : undefined;
+
+    const where: Prisma.GroupMealWhereInput = visibleWhere
+      ? {
+          ...baseWhere,
+          ...visibleWhere,
+        }
+      : baseWhere;
+
+    const baseGroupMeals = await prisma.groupMeal.findMany({
+      where,
+      orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+    });
 
     const groupMeals = await attachGroupMealRelations(baseGroupMeals);
 
