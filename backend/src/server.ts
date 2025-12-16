@@ -33,6 +33,7 @@ import { superLikesRouter } from "./routes/superLikes.js";
 import devRouter from "./routes/dev.js";
 import { availabilityRouter } from "./routes/availability.js";
 import { groupMealsRouter } from "./routes/groupMeals.js";
+import { groupMealChatRouter } from "./routes/groupMealChat.js";
 import { lineRouter } from "./routes/line.js";
 import { lineWebhookRouter } from "./routes/lineWebhook.js";
 import { autoGroupMealsRouter } from "./routes/autoGroupMeals.js";
@@ -119,6 +120,7 @@ app.use("/api/availability", availabilityRouter);
 // フロントの NEXT_PUBLIC_API_BASE_URL はこの API サーバーのホスト（例: https://gohan-backend.onrailway.app）を指し、
 // フロントからの `POST /api/group-meals` が Next.js 側の `/api` ではなくこの Express ルートに届くようにしてください。
 app.use("/api/group-meals", groupMealsRouter);
+app.use("/api/group-meals/:groupMealId/chat", groupMealChatRouter);
 app.use("/api/auto-group-meals", autoGroupMealsRouter);
 
 // 👇 LINE 関連ルート
