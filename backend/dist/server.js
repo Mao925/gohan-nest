@@ -8,6 +8,7 @@ import { PORT, DEFAULT_COMMUNITY_CODE, DEFAULT_COMMUNITY_NAME, CLIENT_ORIGIN, SE
 import { prisma } from "./lib/prisma.js";
 import { authRouter } from "./routes/auth.js";
 import { communityRouter } from "./routes/community.js";
+import { communitiesRouter } from "./routes/communities.js";
 import { communityInvitesRouter } from "./routes/communityInvites.js";
 import { adminRouter } from "./routes/admin.js";
 import { profileRouter } from "./routes/profile.js";
@@ -19,6 +20,7 @@ import { superLikesRouter } from "./routes/superLikes.js";
 import devRouter from "./routes/dev.js";
 import { availabilityRouter } from "./routes/availability.js";
 import { groupMealsRouter } from "./routes/groupMeals.js";
+import { groupMealChatRouter } from "./routes/groupMealChat.js";
 import { lineRouter } from "./routes/line.js";
 import { lineWebhookRouter } from "./routes/lineWebhook.js";
 import { autoGroupMealsRouter } from "./routes/autoGroupMeals.js";
@@ -73,6 +75,7 @@ app.use(session({
 app.use("/uploads", express.static(path.resolve("uploads")));
 app.use("/api/auth", authRouter);
 app.use("/api/community", communityRouter);
+app.use("/api/communities", communitiesRouter);
 app.use("/api/community/invites", communityInvitesRouter);
 app.use("/api/admin", adminRouter);
 app.use("/api/profile", profileRouter);
@@ -85,6 +88,7 @@ app.use("/api/availability", availabilityRouter);
 // フロントの NEXT_PUBLIC_API_BASE_URL はこの API サーバーのホスト（例: https://gohan-backend.onrailway.app）を指し、
 // フロントからの `POST /api/group-meals` が Next.js 側の `/api` ではなくこの Express ルートに届くようにしてください。
 app.use("/api/group-meals", groupMealsRouter);
+app.use("/api/group-meals/:groupMealId/chat", groupMealChatRouter);
 app.use("/api/auto-group-meals", autoGroupMealsRouter);
 // 👇 LINE 関連ルート
 app.use("/api/line", lineRouter);
